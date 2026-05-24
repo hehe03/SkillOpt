@@ -16,7 +16,7 @@ Respond ONLY with a valid JSON object:
       "type": "add_rule|remove_rule|merge_rules|reorganize|compress|clarify",
       "title": "<short title>",
       "motivation": "<why this matters>",
-      "instruction": "<what the rewriting teacher should change in the skill>",
+      "instruction": "<what the rewriting optimizer should change in the skill>",
       "priority_hint": "high|medium|low",
       "support_count": <integer>,
       "source_type": "failure|success"

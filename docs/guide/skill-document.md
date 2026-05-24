@@ -70,7 +70,7 @@ Track your skill's evolution through:
     1. **Start with a seed skill** (`env.skill_init`) if you have domain knowledge — it converges faster
     2. **Use cosine LR schedule** — aggressive early exploration + careful late refinement
     3. **Enable slow update** (`use_slow_update: true`) to prevent forgetting across epochs
-    4. **Enable meta skill** (`use_meta_skill: true`) so the teacher accumulates strategy memory
+    4. **Enable meta skill** (`use_meta_skill: true`) so the optimizer accumulates strategy memory
 
 ## Next Steps
 

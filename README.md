@@ -19,16 +19,16 @@ SkillOpt is a framework for optimizing a natural-language **skill document** thr
 
 It does **not** fine-tune model parameters. Instead, it treats the skill document as the optimization target:
 
-- The **student** model executes tasks with the current skill
-- The **teacher** model analyzes trajectories and proposes edits
+- The **target** model executes tasks with the current skill
+- The **optimizer** model analyzes trajectories and proposes edits
 - The framework merges, ranks, applies, and validates those edits
 - Only validated skill updates are kept
 
 | Deep Learning | SkillOpt |
 |---|---|
 | Model weights | Skill document (Markdown) |
-| Forward pass | Rollout (student executes tasks) |
-| Loss computation | Reflect (teacher analyzes trajectories) |
+| Forward pass | Rollout (target executes tasks) |
+| Loss computation | Reflect (optimizer analyzes trajectories) |
 | Gradient | Edit patches (proposed skill improvements) |
 | Gradient clipping | Edit ranking & selection (`learning_rate`) |
 | Weight update | Patch application to skill document |
@@ -59,17 +59,17 @@ This gives a training-style loop for prompt / policy optimization:
 Every training step executes the following pipeline in `skillopt/engine/trainer.py`:
 
 1. **Rollout**
-   The student model runs a batch of tasks using the current skill.
+   The target model runs a batch of tasks using the current skill.
 
 2. **Reflect**
-   The teacher analyzes minibatches of trajectories and emits raw patches.
+   The optimizer analyzes minibatches of trajectories and emits raw patches.
    Failure-driven and success-driven patches are tracked separately.
 
 3. **Aggregate**
    Raw patches are merged hierarchically. Metadata such as `support_count` and `source_type` is carried into the merged patch so later ranking can use it.
 
 4. **Select**
-   The teacher ranks the merged edit pool and keeps up to `edit_budget` edits.
+   The optimizer ranks the merged edit pool and keeps up to `edit_budget` edits.
 
 5. **Update**
    The selected edits are applied to the skill document. The framework records an `edit_apply_report.json` so you can see which edits actually landed, which were skipped, and why.
@@ -84,7 +84,7 @@ Inside an epoch, the trainer maintains a step buffer containing:
 - Compact failure-pattern summaries from previous steps
 - Rejected edits and their score deltas
 
-That context is fed back into later reflection calls so the teacher can avoid repeating ineffective edits and can focus on unsolved error patterns.
+That context is fed back into later reflection calls so the optimizer can avoid repeating ineffective edits and can focus on unsolved error patterns.
 
 ### Epoch-Level Mechanisms
 
@@ -96,7 +96,7 @@ This guidance is **not** blindly written through — it is converted into a cand
 
 #### Meta Skill
 
-`meta_skill` is teacher-side cross-epoch memory. It does not directly edit the current skill. Instead, it writes a compact memory artifact describing longer-term patterns across adjacent epochs. That memory is loaded into later reflection / merge / ranking calls as extra context.
+`meta_skill` is optimizer-side cross-epoch memory. It does not directly edit the current skill. Instead, it writes a compact memory artifact describing longer-term patterns across adjacent epochs. That memory is loaded into later reflection / merge / ranking calls as extra context.
 
 #### Meta Reflect
 
@@ -161,10 +161,10 @@ SkillOpt uses a hierarchical YAML configuration system. Each benchmark config in
 
 ```yaml
 model:
-  teacher_backend: openai_chat     # openai_chat | claude_chat | qwen_chat
-  student_backend: openai_chat     # openai_chat | claude_chat | codex_exec | qwen_chat
-  teacher: gpt-5.5                 # teacher model deployment name
-  student: gpt-5.5                 # student model deployment name
+  optimizer_backend: openai_chat     # openai_chat | claude_chat | qwen_chat
+  target_backend: openai_chat     # openai_chat | claude_chat | codex_exec | qwen_chat
+  optimizer: gpt-5.5                 # optimizer model deployment name
+  target: gpt-5.5                 # target model deployment name
   reasoning_effort: medium         # low | medium | high
 
 train:
@@ -205,8 +205,8 @@ Override any config key from the command line:
 ```bash
 python scripts/train.py \
   --config configs/searchqa/default.yaml \
-  --cfg-options model.teacher_backend=openai_chat \
-                model.student_backend=codex_exec \
+  --cfg-options model.optimizer_backend=openai_chat \
+                model.target_backend=codex_exec \
                 train.batch_size=40 \
                 optimizer.learning_rate=4
 
@@ -214,8 +214,8 @@ python scripts/train.py \
 python scripts/train.py \
   --config configs/searchqa/default.yaml \
   --backend azure_openai \
-  --teacher_model gpt-5.5 \
-  --student_model gpt-5.5 \
+  --optimizer_model gpt-5.5 \
+  --target_model gpt-5.5 \
   --reasoning_effort medium
 ```
 
@@ -227,19 +227,19 @@ All model access goes through the unified backend router in `skillopt/model/`.
 
 | Backend | Use case | Config key |
 |---|---|---|
-| `openai_chat` | Azure OpenAI / OpenAI API | teacher / student |
-| `claude_chat` | Anthropic Claude | teacher / student |
-| `codex_exec` | Codex execution harness | student only |
-| `qwen_chat` | Local Qwen via vLLM | teacher / student |
+| `openai_chat` | Azure OpenAI / OpenAI API | optimizer / target |
+| `claude_chat` | Anthropic Claude | optimizer / target |
+| `codex_exec` | Codex execution harness | target only |
+| `qwen_chat` | Local Qwen via vLLM | optimizer / target |
 
-Separate teacher/student endpoints are supported:
+Separate optimizer/target endpoints are supported:
 
 ```yaml
 model:
-  teacher_backend: openai_chat
-  student_backend: codex_exec
-  teacher: gpt-5.5
-  student: gpt-5.5-codex
+  optimizer_backend: openai_chat
+  target_backend: codex_exec
+  optimizer: gpt-5.5
+  target: gpt-5.5-codex
 ```
 
 ---
@@ -292,15 +292,15 @@ Basic training:
 python scripts/train.py --config configs/searchqa/default.yaml
 ```
 
-Exec harness (Codex student):
+Exec harness (Codex target):
 
 ```bash
 python scripts/train.py \
   --config configs/searchqa/default.yaml \
-  --teacher_backend openai_chat \
-  --student_backend codex_exec \
-  --teacher_model gpt-5.5 \
-  --student_model gpt-5.5-codex \
+  --optimizer_backend openai_chat \
+  --target_backend codex_exec \
+  --optimizer_model gpt-5.5 \
+  --target_model gpt-5.5-codex \
   --use_deep_reflect true \
   --skill_update_mode rewrite_from_suggestions
 ```
@@ -366,7 +366,7 @@ The trainer resumes from `runtime_state.json` when present. That state tracks:
 1. Create `skillopt/envs/<your_env>/` with:
    - `adapter.py` — implements `EnvAdapter`
    - `dataloader.py` — data loading logic
-   - `rollout.py` — student execution logic
+   - `rollout.py` — target execution logic
    - `skills/initial.md` — initial skill document
 2. Add a config at `configs/<your_env>/default.yaml`
 3. Register in `skillopt/envs/__init__.py`

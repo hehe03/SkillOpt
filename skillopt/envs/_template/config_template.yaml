@@ -31,7 +31,7 @@ optimizer:
   learning_rate: 4                # Max edits per step (edit budget)
   lr_scheduler: cosine            # cosine | linear | constant | autonomous
   use_slow_update: true           # Epoch-boundary momentum
-  use_meta_skill: true            # Cross-epoch teacher memory
+  use_meta_skill: true            # Cross-epoch optimizer memory
 
 # ── Evaluation ───────────────────────────────────
 evaluation:
@@ -41,5 +41,5 @@ evaluation:
 # ── Model ────────────────────────────────────────
 model:
   backend: azure_openai           # azure_openai | openai_chat | claude_code_exec | qwen
-  teacher: gpt-5.5
-  student: gpt-5.5
+  optimizer: gpt-4o
+  target: gpt-4o

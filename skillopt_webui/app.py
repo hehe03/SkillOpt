@@ -86,8 +86,8 @@ class TrainingManager:
                     if line and not line.startswith("#") and "=" in line:
                         k, v = line.split("=", 1)
                         env[k] = v
-        # Propagate TEACHER_* to base AZURE_OPENAI_* when base is missing,
-        # so student/default endpoints inherit from teacher config.
+        # Propagate OPTIMIZER_* to base AZURE_OPENAI_* when base is missing,
+        # so target/default endpoints inherit from optimizer config.
         _propagate = [
             ("ENDPOINT", ""), ("API_VERSION", ""), ("AUTH_MODE", ""),
             ("MANAGED_IDENTITY_CLIENT_ID", ""), ("AD_SCOPE", ""),
@@ -95,9 +95,9 @@ class TrainingManager:
         ]
         for suffix, _ in _propagate:
             base_key = f"AZURE_OPENAI_{suffix}"
-            teacher_key = f"TEACHER_AZURE_OPENAI_{suffix}"
-            if not env.get(base_key) and env.get(teacher_key):
-                env[base_key] = env[teacher_key]
+            optimizer_key = f"OPTIMIZER_AZURE_OPENAI_{suffix}"
+            if not env.get(base_key) and env.get(optimizer_key):
+                env[base_key] = env[optimizer_key]
 
         try:
             proc = subprocess.Popen(
@@ -398,7 +398,7 @@ def build_ui():
                         use_slow_update = gr.Checkbox(value=True,
                                                        label="Slow Update (epoch-boundary momentum)")
                         use_meta_skill = gr.Checkbox(value=True,
-                                                      label="Meta Skill (cross-epoch teacher memory)")
+                                                      label="Meta Skill (cross-epoch optimizer memory)")
                         use_gate = gr.Checkbox(value=True,
                                                 label="Gate (validation-based accept/reject)")
 
@@ -533,10 +533,13 @@ def main():
     parser = argparse.ArgumentParser(description="SkillOpt WebUI")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
+    parser.add_argument("--host", type=str, default="0.0.0.0",
+                        help="Server host. Use 0.0.0.0 for public access.")
     args = parser.parse_args()
 
     app = build_ui()
     app.launch(
+        server_name=args.host,
         server_port=args.port,
         share=args.share,
         theme=gr.themes.Soft(primary_hue="indigo"),

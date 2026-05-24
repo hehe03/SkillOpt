@@ -2,7 +2,7 @@
 
 At the end of each epoch, the slow update compares rollout performance of the
 same sample set under the previous epoch's skill vs. the current epoch's skill
-(Markov: only adjacent epochs). A teacher analyzes regressions, improvements,
+(Markov: only adjacent epochs). A optimizer analyzes regressions, improvements,
 and persistent failures, then writes a free-form guidance block into a
 **protected** section of the skill document. This section cannot be modified by
 step-level analyst edits — only the slow update process overwrites it.
@@ -14,7 +14,7 @@ Public API
 - :func:`replace_slow_update_field`      — overwrite content
 - :func:`has_slow_update_field`          — check if markers are present
 - :func:`build_comparison_text`          — format side-by-side rollout results
-- :func:`run_slow_update`               — teacher call to produce guidance
+- :func:`run_slow_update`               — optimizer call to produce guidance
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import json
 import os
 import traceback
 
-from skillopt.model import chat_teacher
+from skillopt.model import chat_optimizer
 from skillopt.prompts import load_prompt
 from skillopt.utils import extract_json
 
@@ -57,16 +57,35 @@ def extract_slow_update_field(skill: str) -> str:
     return skill[inner_start:end].strip()
 
 
-def replace_slow_update_field(skill: str, new_content: str) -> str:
-    start = skill.find(SLOW_UPDATE_START)
-    end = skill.find(SLOW_UPDATE_END)
-    if start == -1 or end == -1:
-        skill = inject_empty_slow_update_field(skill)
+def _strip_all_slow_update_fields(skill: str) -> str:
+    """Remove every SLOW_UPDATE_START/END pair (and content between) from *skill*."""
+    while True:
         start = skill.find(SLOW_UPDATE_START)
-        end = skill.find(SLOW_UPDATE_END)
-    before = skill[:start + len(SLOW_UPDATE_START)]
-    after = skill[end:]
-    return before + "\n" + new_content.strip() + "\n" + after
+        if start == -1:
+            break
+        end = skill.find(SLOW_UPDATE_END, start)
+        if end == -1:
+            # Orphan start marker — remove it
+            skill = skill[:start] + skill[start + len(SLOW_UPDATE_START):]
+            break
+        skill = skill[:start] + skill[end + len(SLOW_UPDATE_END):]
+    # Clean up stray end markers
+    skill = skill.replace(SLOW_UPDATE_END, "")
+    # Collapse excess blank lines left behind
+    while "\n\n\n" in skill:
+        skill = skill.replace("\n\n\n", "\n\n")
+    return skill.rstrip()
+
+
+def replace_slow_update_field(skill: str, new_content: str) -> str:
+    # Remove all existing slow update regions first to guarantee exactly one.
+    skill = _strip_all_slow_update_fields(skill)
+    block = (
+        f"\n\n{SLOW_UPDATE_START}\n"
+        f"{new_content.strip()}\n"
+        f"{SLOW_UPDATE_END}\n"
+    )
+    return skill + block
 
 
 # ── Comparison text builder ─────────────────────────────────────────────────
@@ -212,7 +231,7 @@ def save_comparison_pairs(pairs: list[dict], out_path: str) -> None:
 
 
 def format_comparison_text(pairs: list[dict]) -> str:
-    """Format structured comparison pairs into teacher-readable text."""
+    """Format structured comparison pairs into optimizer-readable text."""
     by_cat: dict[str, list[dict]] = {
         "regressed": [],
         "persistent_fail": [],
@@ -277,7 +296,7 @@ def format_comparison_text(pairs: list[dict]) -> str:
 
 
 
-# ── Teacher call ────────────────────────────────────────────────────────────
+# ── Optimizer call ────────────────────────────────────────────────────────────
 
 
 def run_slow_update(
@@ -293,7 +312,7 @@ def run_slow_update(
     comparison_pairs: list[dict] | None = None,
     system_prompt: str | None = None,
 ) -> dict | None:
-    """Run the slow update teacher call for one epoch boundary.
+    """Run the slow update optimizer call for one epoch boundary.
 
     Parameters
     ----------
@@ -355,7 +374,7 @@ def run_slow_update(
     )
 
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=actual_system,
             user=user,
             max_completion_tokens=4096,

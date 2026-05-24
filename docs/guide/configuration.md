@@ -25,8 +25,8 @@ Benchmark configs inherit from `_base_/default.yaml` and override specific value
 ```yaml
 model:
   backend: azure_openai          # azure_openai | openai_chat | claude_code_exec | qwen
-  teacher: gpt-5.5               # Teacher model (for reflection)
-  student: gpt-5.5               # Student model (for rollout)
+  optimizer: gpt-5.5               # Optimizer model (for reflection)
+  target: gpt-5.5               # Target model (for rollout)
 ```
 
 ### Training

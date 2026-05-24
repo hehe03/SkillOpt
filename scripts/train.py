@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ReflACT unified training entry point.
+"""SkillOpt unified training entry point.
 
 Usage
 -----
@@ -125,7 +125,7 @@ _BOOL = lambda x: x.lower() in ("true", "1", "yes")  # noqa: E731
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="ReflACT: Reflective Agent Tuning",
+        description="SkillOpt: Executive Strategy for Self-Evolving Agent Skills",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -138,10 +138,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--env", type=str)
     p.add_argument("--backend", type=str,
                    choices=["azure_openai", "codex", "codex_exec", "claude", "claude_chat", "claude_code_exec", "qwen", "qwen_chat"])
-    p.add_argument("--teacher_model", type=str)
-    p.add_argument("--student_model", type=str)
-    p.add_argument("--teacher_backend", type=str)
-    p.add_argument("--student_backend", type=str)
+    p.add_argument("--optimizer_model", type=str)
+    p.add_argument("--target_model", type=str)
+    p.add_argument("--optimizer_backend", type=str)
+    p.add_argument("--target_backend", type=str)
     p.add_argument("--reasoning_effort", type=str,
                    choices=["", "low", "medium", "high", "xhigh", "max"])
     p.add_argument("--rewrite_reasoning_effort", type=str)
@@ -155,18 +155,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--azure_openai_auth_mode", type=str)
     p.add_argument("--azure_openai_ad_scope", type=str)
     p.add_argument("--azure_openai_managed_identity_client_id", type=str)
-    p.add_argument("--teacher_azure_openai_endpoint", type=str)
-    p.add_argument("--teacher_azure_openai_api_version", type=str)
-    p.add_argument("--teacher_azure_openai_api_key", type=str)
-    p.add_argument("--teacher_azure_openai_auth_mode", type=str)
-    p.add_argument("--teacher_azure_openai_ad_scope", type=str)
-    p.add_argument("--teacher_azure_openai_managed_identity_client_id", type=str)
-    p.add_argument("--student_azure_openai_endpoint", type=str)
-    p.add_argument("--student_azure_openai_api_version", type=str)
-    p.add_argument("--student_azure_openai_api_key", type=str)
-    p.add_argument("--student_azure_openai_auth_mode", type=str)
-    p.add_argument("--student_azure_openai_ad_scope", type=str)
-    p.add_argument("--student_azure_openai_managed_identity_client_id", type=str)
+    p.add_argument("--optimizer_azure_openai_endpoint", type=str)
+    p.add_argument("--optimizer_azure_openai_api_version", type=str)
+    p.add_argument("--optimizer_azure_openai_api_key", type=str)
+    p.add_argument("--optimizer_azure_openai_auth_mode", type=str)
+    p.add_argument("--optimizer_azure_openai_ad_scope", type=str)
+    p.add_argument("--optimizer_azure_openai_managed_identity_client_id", type=str)
+    p.add_argument("--target_azure_openai_endpoint", type=str)
+    p.add_argument("--target_azure_openai_api_version", type=str)
+    p.add_argument("--target_azure_openai_api_key", type=str)
+    p.add_argument("--target_azure_openai_auth_mode", type=str)
+    p.add_argument("--target_azure_openai_ad_scope", type=str)
+    p.add_argument("--target_azure_openai_managed_identity_client_id", type=str)
     p.add_argument("--qwen_chat_base_url", type=str)
     p.add_argument("--qwen_chat_api_key", type=str)
     p.add_argument("--qwen_chat_temperature", type=float)
@@ -187,7 +187,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--claude_code_exec_use_sdk", type=str)
     p.add_argument("--claude_code_exec_effort", type=str)
     p.add_argument("--claude_code_exec_max_thinking_tokens", type=int)
-    p.add_argument("--codex_trace_to_teacher", type=_BOOL)
+    p.add_argument("--codex_trace_to_optimizer", type=_BOOL)
     p.add_argument("--skill_init", type=str)
     p.add_argument("--num_epochs", type=int)
     p.add_argument("--train_size", type=int)
@@ -212,8 +212,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--analyst_workers", type=int)
     p.add_argument("--failure_only", type=_BOOL)
     p.add_argument("--minibatch_size", type=int)
-    p.add_argument("--use_meta_reflect", type=_BOOL)
-    p.add_argument("--meta_edit_budget", type=int)
     p.add_argument("--skill_update_mode", type=str,
                    choices=[
                        "patch",
@@ -224,9 +222,6 @@ def parse_args() -> argparse.Namespace:
                        "full_rewrite_minibatch",
                        "minibatch_full_rewrite",
                    ])
-    p.add_argument("--use_deep_reflect", type=_BOOL)
-    p.add_argument("--deep_reflect_failures", type=int)
-    p.add_argument("--deep_reflect_successes", type=int)
     p.add_argument("--use_slow_update", type=_BOOL)
     p.add_argument("--slow_update_samples", type=int)
     p.add_argument("--longitudinal_pair_policy", type=str,
@@ -260,10 +255,10 @@ def parse_args() -> argparse.Namespace:
 
 _LEGACY_TO_STRUCTURED: dict[str, str] = {
     "backend": "model.backend",
-    "teacher_model": "model.teacher",
-    "student_model": "model.student",
-    "teacher_backend": "model.teacher_backend",
-    "student_backend": "model.student_backend",
+    "optimizer_model": "model.optimizer",
+    "target_model": "model.target",
+    "optimizer_backend": "model.optimizer_backend",
+    "target_backend": "model.target_backend",
     "reasoning_effort": "model.reasoning_effort",
     "rewrite_reasoning_effort": "model.rewrite_reasoning_effort",
     "rewrite_max_completion_tokens": "model.rewrite_max_completion_tokens",
@@ -276,18 +271,18 @@ _LEGACY_TO_STRUCTURED: dict[str, str] = {
     "azure_openai_auth_mode": "model.azure_openai_auth_mode",
     "azure_openai_ad_scope": "model.azure_openai_ad_scope",
     "azure_openai_managed_identity_client_id": "model.azure_openai_managed_identity_client_id",
-    "teacher_azure_openai_endpoint": "model.teacher_azure_openai_endpoint",
-    "teacher_azure_openai_api_version": "model.teacher_azure_openai_api_version",
-    "teacher_azure_openai_api_key": "model.teacher_azure_openai_api_key",
-    "teacher_azure_openai_auth_mode": "model.teacher_azure_openai_auth_mode",
-    "teacher_azure_openai_ad_scope": "model.teacher_azure_openai_ad_scope",
-    "teacher_azure_openai_managed_identity_client_id": "model.teacher_azure_openai_managed_identity_client_id",
-    "student_azure_openai_endpoint": "model.student_azure_openai_endpoint",
-    "student_azure_openai_api_version": "model.student_azure_openai_api_version",
-    "student_azure_openai_api_key": "model.student_azure_openai_api_key",
-    "student_azure_openai_auth_mode": "model.student_azure_openai_auth_mode",
-    "student_azure_openai_ad_scope": "model.student_azure_openai_ad_scope",
-    "student_azure_openai_managed_identity_client_id": "model.student_azure_openai_managed_identity_client_id",
+    "optimizer_azure_openai_endpoint": "model.optimizer_azure_openai_endpoint",
+    "optimizer_azure_openai_api_version": "model.optimizer_azure_openai_api_version",
+    "optimizer_azure_openai_api_key": "model.optimizer_azure_openai_api_key",
+    "optimizer_azure_openai_auth_mode": "model.optimizer_azure_openai_auth_mode",
+    "optimizer_azure_openai_ad_scope": "model.optimizer_azure_openai_ad_scope",
+    "optimizer_azure_openai_managed_identity_client_id": "model.optimizer_azure_openai_managed_identity_client_id",
+    "target_azure_openai_endpoint": "model.target_azure_openai_endpoint",
+    "target_azure_openai_api_version": "model.target_azure_openai_api_version",
+    "target_azure_openai_api_key": "model.target_azure_openai_api_key",
+    "target_azure_openai_auth_mode": "model.target_azure_openai_auth_mode",
+    "target_azure_openai_ad_scope": "model.target_azure_openai_ad_scope",
+    "target_azure_openai_managed_identity_client_id": "model.target_azure_openai_managed_identity_client_id",
     "qwen_chat_base_url": "model.qwen_chat_base_url",
     "qwen_chat_api_key": "model.qwen_chat_api_key",
     "qwen_chat_temperature": "model.qwen_chat_temperature",
@@ -308,7 +303,7 @@ _LEGACY_TO_STRUCTURED: dict[str, str] = {
     "claude_code_exec_use_sdk": "model.claude_code_exec_use_sdk",
     "claude_code_exec_effort": "model.claude_code_exec_effort",
     "claude_code_exec_max_thinking_tokens": "model.claude_code_exec_max_thinking_tokens",
-    "codex_trace_to_teacher": "model.codex_trace_to_teacher",
+    "codex_trace_to_optimizer": "model.codex_trace_to_optimizer",
     "num_epochs": "train.num_epochs",
     "train_size": "train.train_size",
     "steps_per_epoch": "train.steps_per_epoch",
@@ -320,16 +315,11 @@ _LEGACY_TO_STRUCTURED: dict[str, str] = {
     "analyst_workers": "gradient.analyst_workers",
     "max_analyst_rounds": "gradient.max_analyst_rounds",
     "failure_only": "gradient.failure_only",
-    "use_deep_reflect": "gradient.use_deep_reflect",
-    "deep_reflect_failures": "gradient.deep_reflect_failures",
-    "deep_reflect_successes": "gradient.deep_reflect_successes",
     "edit_budget": "optimizer.learning_rate",
     "min_edit_budget": "optimizer.min_learning_rate",
     "lr_scheduler": "optimizer.lr_scheduler",
     "lr_control_mode": "optimizer.lr_control_mode",
     "skill_update_mode": "optimizer.skill_update_mode",
-    "use_meta_reflect": "optimizer.use_meta_reflect",
-    "meta_edit_budget": "optimizer.meta_learning_rate",
     "use_slow_update": "optimizer.use_slow_update",
     "slow_update_samples": "optimizer.slow_update_samples",
     "longitudinal_pair_policy": "optimizer.longitudinal_pair_policy",
@@ -387,7 +377,7 @@ def load_config(args: argparse.Namespace) -> dict:
                 explicit_backend = str(option).split("=", 1)[1].strip()
                 break
 
-    backend = normalize_backend_name(flat.get("model_backend") or flat.get("student_backend") or "azure_openai")
+    backend = normalize_backend_name(flat.get("model_backend") or flat.get("target_backend") or "azure_openai")
 
     def _has_model_override(dotted_key: str, legacy_key: str) -> bool:
         if getattr(args, legacy_key, None) is not None:
@@ -402,53 +392,53 @@ def load_config(args: argparse.Namespace) -> dict:
         backend = normalize_backend_name(explicit_backend)
         flat["model_backend"] = backend
         if backend in {"claude", "claude_chat"}:
-            flat.setdefault("teacher_backend", "claude_chat")
-            flat.setdefault("student_backend", "claude_chat")
+            flat.setdefault("optimizer_backend", "claude_chat")
+            flat.setdefault("target_backend", "claude_chat")
         elif backend in {"codex", "codex_exec"}:
-            flat.setdefault("teacher_backend", "openai_chat")
-            flat.setdefault("student_backend", "codex_exec")
+            flat.setdefault("optimizer_backend", "openai_chat")
+            flat.setdefault("target_backend", "codex_exec")
         elif backend == "claude_code_exec":
-            flat.setdefault("teacher_backend", "openai_chat")
-            flat.setdefault("student_backend", "claude_code_exec")
+            flat.setdefault("optimizer_backend", "openai_chat")
+            flat.setdefault("target_backend", "claude_code_exec")
         elif backend in {"qwen", "qwen_chat"}:
-            flat.setdefault("teacher_backend", "openai_chat")
-            flat.setdefault("student_backend", "qwen_chat")
+            flat.setdefault("optimizer_backend", "openai_chat")
+            flat.setdefault("target_backend", "qwen_chat")
         else:
-            flat.setdefault("teacher_backend", "openai_chat")
-            flat.setdefault("student_backend", "openai_chat")
+            flat.setdefault("optimizer_backend", "openai_chat")
+            flat.setdefault("target_backend", "openai_chat")
     else:
-        flat.setdefault("teacher_backend", "openai_chat")
-        flat.setdefault("student_backend", "openai_chat")
+        flat.setdefault("optimizer_backend", "openai_chat")
+        flat.setdefault("target_backend", "openai_chat")
 
-    if flat.get("teacher_backend") == "claude_chat":
+    if flat.get("optimizer_backend") == "claude_chat":
         if (
-            str(flat.get("teacher_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.teacher", "teacher_model")
+            str(flat.get("optimizer_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.optimizer", "optimizer_model")
         ):
-            flat["teacher_model"] = default_model_for_backend("claude_chat")
-    if flat.get("student_backend") == "claude_chat":
+            flat["optimizer_model"] = default_model_for_backend("claude_chat")
+    if flat.get("target_backend") == "claude_chat":
         if (
-            str(flat.get("student_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.student", "student_model")
+            str(flat.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
         ):
-            flat["student_model"] = default_model_for_backend("claude_chat")
-    if flat.get("student_backend") == "claude_code_exec":
+            flat["target_model"] = default_model_for_backend("claude_chat")
+    if flat.get("target_backend") == "claude_code_exec":
         if (
-            str(flat.get("student_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.student", "student_model")
+            str(flat.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
         ):
-            flat["student_model"] = default_model_for_backend("claude_chat")
-    if flat.get("student_backend") == "qwen_chat":
+            flat["target_model"] = default_model_for_backend("claude_chat")
+    if flat.get("target_backend") == "qwen_chat":
         if (
-            str(flat.get("student_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.student", "student_model")
+            str(flat.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
         ):
-            flat["student_model"] = default_model_for_backend("qwen_chat")
+            flat["target_model"] = default_model_for_backend("qwen_chat")
 
     # Auto-generate output root
     if not flat.get("out_root"):
         env = flat.get("env", "unknown")
-        model = flat.get("teacher_model", "unknown").replace("/", "-")
+        model = flat.get("optimizer_model", "unknown").replace("/", "-")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         flat["out_root"] = os.path.join("outputs", f"skillopt_{env}_{model}_{ts}")
 
@@ -463,13 +453,13 @@ def main() -> None:
     cfg = load_config(args)
 
     print(f"\n{'='*60}")
-    print(f"  ReflACT — Reflective Agent Tuning")
+    print(f"  SkillOpt — Executive Strategy for Self-Evolving Agent Skills")
     print(f"{'='*60}")
     print(f"  env:            {cfg.get('env')}")
-    print(f"  teacher_model:  {cfg.get('teacher_model')}")
-    print(f"  student_model:  {cfg.get('student_model')}")
-    print(f"  teacher_backend:{cfg.get('teacher_backend', 'openai_chat')}")
-    print(f"  student_backend:{cfg.get('student_backend', 'openai_chat')}")
+    print(f"  optimizer_model:  {cfg.get('optimizer_model')}")
+    print(f"  target_model:  {cfg.get('target_model')}")
+    print(f"  optimizer_backend:{cfg.get('optimizer_backend', 'openai_chat')}")
+    print(f"  target_backend:{cfg.get('target_backend', 'openai_chat')}")
     print(f"  reasoning:      {cfg.get('reasoning_effort') or 'off'}")
     print(f"  rewrite_effort: {cfg.get('rewrite_reasoning_effort') or 'off'}")
     print(f"  epochs:         {cfg.get('num_epochs')}")
@@ -482,8 +472,8 @@ def main() -> None:
     print(f"  min_edit_budget:{cfg.get('min_edit_budget', 2)}")
     print(f"  minibatch_size: {cfg.get('minibatch_size')}")
     print(f"  seed:           {cfg.get('seed')}")
-    print(f"  meta_reflect:   {cfg.get('use_meta_reflect', False)}")
     print(f"  meta_skill:     {cfg.get('use_meta_skill', False)}")
+    print(f"  slow_update:    {cfg.get('use_slow_update', False)}")
     print(f"  out_root:       {cfg.get('out_root')}")
     print(f"{'='*60}\n")
 

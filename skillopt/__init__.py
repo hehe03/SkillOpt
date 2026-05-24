@@ -21,7 +21,6 @@ from skillopt.types import (  # noqa: F401
     FailureSummaryEntry,
     GateAction,
     GateResult,
-    MetaReflectResult,
     Patch,
     RawPatch,
     RolloutResult,

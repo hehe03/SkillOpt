@@ -17,10 +17,10 @@ _RESPONSES_API_MODELS = {
 }
 
 _BACKEND_DEFAULT_MODELS = {
-    "azure_openai": "gpt-5.5",
-    "openai_chat": "gpt-5.5",
-    "codex": "gpt-5.5",
-    "codex_exec": "gpt-5.5",
+    "azure_openai": "gpt-4o",
+    "openai_chat": "gpt-4o",
+    "codex": "gpt-4o",
+    "codex_exec": "gpt-4o",
     "claude": "claude-sonnet-4-6",
     "claude_chat": "claude-sonnet-4-6",
     "claude_code_exec": "claude-sonnet-4-6",

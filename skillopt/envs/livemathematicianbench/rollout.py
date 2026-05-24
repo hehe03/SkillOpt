@@ -7,8 +7,8 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from skillopt.envs.livemathematicianbench.evaluator import evaluate
-from skillopt.model import chat_student, get_student_backend, is_student_exec_backend
-from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_student_exec
+from skillopt.model import chat_target, get_target_backend, is_target_exec_backend
+from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_target_exec
 from skillopt.prompts import load_prompt
 
 def _build_system(skill_content: str) -> str:
@@ -95,11 +95,11 @@ def _run_codex_once(
     work_dir = os.path.join(pred_dir, "codex_exec")
     prepare_workspace(work_dir=work_dir, skill_md=skill_md, task_text=task_text)
     prompt = (
-        "Use the `skillopt-student` skill available in this workspace.\n"
+        "Use the `skillopt-target` skill available in this workspace.\n"
         "Read `task.md` and solve the multiple-choice problem.\n"
         "Output only the final choice label inside <answer>...</answer>."
     )
-    final_message, raw = run_student_exec(
+    final_message, raw = run_target_exec(
         work_dir=work_dir,
         prompt=prompt,
         model=model,
@@ -143,7 +143,7 @@ def process_one(
         pred_dir = os.path.join(out_root, "predictions", item_id)
         os.makedirs(pred_dir, exist_ok=True)
 
-        if is_student_exec_backend():
+        if is_target_exec_backend():
             from skillopt.model import azure_openai as _llm
 
             conversation: list[dict] = []
@@ -155,7 +155,7 @@ def process_one(
                     pred_dir=pred_dir,
                     skill_content=skill_content,
                     item=item,
-                    model=_llm.STUDENT_DEPLOYMENT,
+                    model=_llm.TARGET_DEPLOYMENT,
                     timeout=exec_timeout,
                     use_theorem=use_theorem,
                     use_sketch=use_sketch,
@@ -172,9 +172,9 @@ def process_one(
             result["agent_ok"] = True
             result["n_turns"] = len(conversation)
 
-            with open(os.path.join(pred_dir, "student_system_prompt.txt"), "w", encoding="utf-8") as f:
+            with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w", encoding="utf-8") as f:
                 f.write(system)
-            with open(os.path.join(pred_dir, "student_user_prompt.txt"), "w", encoding="utf-8") as f:
+            with open(os.path.join(pred_dir, "target_user_prompt.txt"), "w", encoding="utf-8") as f:
                 f.write(user)
 
             eval_result = evaluate(response, item["correct_choice"], item["choices"])
@@ -216,7 +216,7 @@ def process_one(
 
         for turn in range(max_turns):
             if turn == 0:
-                resp_text, _ = chat_student(
+                resp_text, _ = chat_target(
                     system=system,
                     user=user,
                     max_completion_tokens=16384,
@@ -230,7 +230,7 @@ def process_one(
                     "Re-evaluate the exact option wording. If needed, correct it. "
                     "Output only the final choice label inside <answer>...</answer>."
                 )
-                resp_text, _ = chat_student(
+                resp_text, _ = chat_target(
                     system=system,
                     user=refinement,
                     max_completion_tokens=16384,
@@ -247,9 +247,9 @@ def process_one(
         result["agent_ok"] = True
         result["n_turns"] = len(conversation)
 
-        with open(os.path.join(pred_dir, "student_system_prompt.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w", encoding="utf-8") as f:
             f.write(system)
-        with open(os.path.join(pred_dir, "student_user_prompt.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(pred_dir, "target_user_prompt.txt"), "w", encoding="utf-8") as f:
             f.write(user)
 
         eval_result = evaluate(response, item["correct_choice"], item["choices"])

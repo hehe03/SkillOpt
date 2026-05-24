@@ -6,7 +6,7 @@ Merge guidelines:
 1. Deduplicate overlapping success patterns.
 2. Be conservative: only keep suggestions that reinforce useful behavior not already well-covered.
 3. Suggestions supported by many source patches should receive higher support_count.
-4. The output suggestions should help a later teacher rewrite the full skill.
+4. The output suggestions should help a later optimizer rewrite the full skill.
 
 Respond ONLY with a valid JSON object:
 {
@@ -16,7 +16,7 @@ Respond ONLY with a valid JSON object:
       "type": "add_rule|remove_rule|merge_rules|reorganize|compress|clarify",
       "title": "<short title>",
       "motivation": "<why this matters>",
-      "instruction": "<what the rewriting teacher should change in the skill>",
+      "instruction": "<what the rewriting optimizer should change in the skill>",
       "priority_hint": "high|medium|low",
       "support_count": <integer>,
       "source_type": "success"

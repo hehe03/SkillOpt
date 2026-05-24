@@ -15,8 +15,8 @@ Public API
 ----------
 - :func:`fmt_trajectory`               -- format one conversation into text
 - :func:`fmt_minibatch_trajectories`   -- format multiple trajectories for batch analysis
-- :func:`run_error_analyst_minibatch`   -- one teacher call for a group of failures
-- :func:`run_success_analyst_minibatch` -- one teacher call for a group of successes
+- :func:`run_error_analyst_minibatch`   -- one optimizer call for a group of failures
+- :func:`run_success_analyst_minibatch` -- one optimizer call for a group of successes
 - :func:`run_minibatch_reflect`         -- full reflect stage dispatcher
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ import random
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from skillopt.model import chat_teacher
+from skillopt.model import chat_optimizer
 from skillopt.optimizer.meta_skill import format_meta_skill_context
 from skillopt.optimizer.update_modes import (
     get_payload_items,
@@ -115,7 +115,7 @@ def fmt_minibatch_trajectories(
     ``"task_type"``, ``"fail_reason"``, etc.  Reads ``conversation.json``
     for each and formats them together with trajectory headers.
 
-    If available, includes the spreadsheet preview and student system prompt
+    If available, includes the spreadsheet preview and target system prompt
     so the analyst can see what the agent saw.
 
     Parameters
@@ -160,32 +160,32 @@ def fmt_minibatch_trajectories(
                 f"{reference_text[:4000]}\n"
             )
 
-        # ── Append student context (what the agent saw) ──────────────
-        student_prompt = item.get("student_system_prompt", "")
-        if not student_prompt:
-            prompt_path = os.path.join(prediction_dir, tid, "student_system_prompt.txt")
+        # ── Append target context (what the agent saw) ──────────────
+        target_prompt = item.get("target_system_prompt", "")
+        if not target_prompt:
+            prompt_path = os.path.join(prediction_dir, tid, "target_system_prompt.txt")
             if os.path.exists(prompt_path):
                 with open(prompt_path) as f:
-                    student_prompt = f.read()
-        if student_prompt:
+                    target_prompt = f.read()
+        if target_prompt:
             header += (
-                f"\n#### Student System Prompt\n"
-                f"{student_prompt[:3000]}\n"
+                f"\n#### Target System Prompt\n"
+                f"{target_prompt[:3000]}\n"
             )
 
-        user_prompt = item.get("student_user_prompt", "")
+        user_prompt = item.get("target_user_prompt", "")
         if not user_prompt:
-            user_prompt_path = os.path.join(prediction_dir, tid, "student_user_prompt.txt")
+            user_prompt_path = os.path.join(prediction_dir, tid, "target_user_prompt.txt")
             if os.path.exists(user_prompt_path):
                 with open(user_prompt_path) as f:
                     user_prompt = f.read()
         if user_prompt:
             header += (
-                f"\n#### Student User Prompt\n"
+                f"\n#### Target User Prompt\n"
                 f"{user_prompt[:3000]}\n"
             )
 
-        if os.environ.get("REFLACT_CODEX_TRACE_TO_TEACHER", "0") == "1":
+        if os.environ.get("REFLACT_CODEX_TRACE_TO_OPTIMIZER", "0") == "1":
             codex_trace_summary = item.get("codex_trace_summary", "")
             if not codex_trace_summary:
                 codex_trace_summary_path = os.path.join(prediction_dir, tid, "codex_trace_summary.txt")
@@ -262,7 +262,7 @@ def run_error_analyst_minibatch(
     meta_skill_context: str = "",
     update_mode: str = "patch",
 ) -> dict | None:
-    """Analyze a minibatch of failed trajectories in one teacher call.
+    """Analyze a minibatch of failed trajectories in one optimizer call.
 
     Parameters
     ----------
@@ -315,13 +315,13 @@ def run_error_analyst_minibatch(
         ctx = f"{ctx}\n{trajectory_memory_context}" if ctx else trajectory_memory_context
     if ctx.strip():
         user += f"## Previous Steps in This Epoch\n{ctx}\n\n"
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user += teacher_ctx + "\n\n"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user += optimizer_ctx + "\n\n"
     user += f"## Failed Trajectories ({len(items)} total)\n{trajectories_text}"
 
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=actual_system, user=user,
             max_completion_tokens=64000 if is_full_rewrite_minibatch_mode(mode) else 4096,
             retries=3,
@@ -350,7 +350,7 @@ def run_success_analyst_minibatch(
     meta_skill_context: str = "",
     update_mode: str = "patch",
 ) -> dict | None:
-    """Analyze a minibatch of successful trajectories in one teacher call.
+    """Analyze a minibatch of successful trajectories in one optimizer call.
 
     Parameters
     ----------
@@ -390,13 +390,13 @@ def run_success_analyst_minibatch(
     ctx = step_buffer_context or trajectory_memory_context or ""
     if ctx.strip():
         user += f"## Previous Steps in This Epoch\n{ctx}\n\n"
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user += teacher_ctx + "\n\n"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user += optimizer_ctx + "\n\n"
     user += f"## Successful Trajectories ({len(items)} total)\n{trajectories_text}"
 
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=actual_system, user=user,
             max_completion_tokens=64000 if is_full_rewrite_minibatch_mode(mode) else 4096,
             retries=3,
@@ -454,7 +454,7 @@ def run_minibatch_reflect(
     meta_skill_context: str = "",
     update_mode: str = "patch",
 ) -> list[dict | None]:
-    """Full minibatch reflect stage: group → parallel teacher calls → patches.
+    """Full minibatch reflect stage: group → parallel optimizer calls → patches.
 
     Separates failure and success trajectories, splits each into minibatches
     of size M, runs all minibatches in parallel, and saves patch files.
@@ -470,7 +470,7 @@ def run_minibatch_reflect(
     patches_dir : str
         Path to save per-minibatch patch JSON files.
     workers : int
-        Max parallel teacher calls.
+        Max parallel optimizer calls.
     failure_only : bool
         If True, skip success trajectories.
     minibatch_size : int

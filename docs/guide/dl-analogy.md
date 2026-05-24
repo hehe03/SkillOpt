@@ -7,9 +7,9 @@ SkillOpt is designed around a core insight: **optimizing natural-language prompt
 | Deep Learning | SkillOpt | Description |
 |---|---|---|
 | **Model weights** | Skill document (Markdown) | The thing being optimized |
-| **Forward pass** | Rollout | Student executes tasks using current skill |
+| **Forward pass** | Rollout | Target executes tasks using current skill |
 | **Loss function** | Task evaluator | Scores task execution quality |
-| **Backpropagation** | Reflect | Teacher analyzes failures → edit patches |
+| **Backpropagation** | Reflect | Optimizer analyzes failures → edit patches |
 | **Gradients** | Edit patches | Proposed changes to the skill |
 | **Gradient aggregation** | Patch aggregation | Merge similar edits |
 | **Gradient clipping** | Edit selection | Cap max edits per step |
@@ -21,7 +21,7 @@ SkillOpt is designed around a core insight: **optimizing natural-language prompt
 | **Training step** | Step | One rollout → reflect → update cycle |
 | **Epoch** | Epoch | Full pass with slow update + meta memory |
 | **Momentum** | Slow update | Longitudinal comparison at epoch boundary |
-| **Meta-learning** | Meta skill | Cross-epoch teacher strategy memory |
+| **Meta-learning** | Meta skill | Cross-epoch optimizer strategy memory |
 | **Batch size** | `batch_size` | Tasks sampled per rollout |
 | **Data parallelism** | `analyst_workers` | Parallel reflection workers |
 | **Training set** | Train split | Items used for rollout |
@@ -44,7 +44,7 @@ From our experiments, these DL intuitions transfer well:
     - **Cosine schedule > constant** — same as in DL, cosine annealing helps convergence
     - **Moderate LR (4-16) > very high/low** — too few edits = slow learning, too many = noisy
     - **Slow update helps** — longitudinal comparison prevents catastrophic forgetting across epochs
-    - **Meta skill memory improves reflection** — teacher benefits from cross-epoch strategy notes
+    - **Meta skill memory improves reflection** — optimizer benefits from cross-epoch strategy notes
 
 !!! warning "What doesn't transfer"
     - **Batch size ≠ better** — larger rollout batches have diminishing returns due to API costs

@@ -1,4 +1,4 @@
-"""Helpers for running exec backends as the student harness."""
+"""Helpers for running exec backends as the target harness."""
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +14,7 @@ from typing import Any
 from skillopt.model.backend_config import (
     get_claude_code_exec_config,
     get_codex_exec_config,
-    get_student_backend,
+    get_target_backend,
 )
 
 
@@ -38,7 +38,7 @@ ANSWER_SCHEMA: dict[str, Any] = {
 def render_skill_md(
     skill_content: str,
     *,
-    name: str = "skillopt-student",
+    name: str = "skillopt-target",
     description: str = "Dynamic ReflACT skill for the current benchmark task.",
     preamble: str = "",
 ) -> str:
@@ -49,7 +49,7 @@ def render_skill_md(
         f'description: "{description}"',
         "---",
         "",
-        "# ReflACT Student Skill",
+        "# ReflACT Target Skill",
         "",
     ]
     if preamble.strip():
@@ -77,9 +77,9 @@ def prepare_workspace(
 ) -> tuple[str, str]:
     if os.path.exists(work_dir):
         shutil.rmtree(work_dir)
-    os.makedirs(os.path.join(work_dir, ".agents", "skills", "skillopt-student"), exist_ok=True)
+    os.makedirs(os.path.join(work_dir, ".agents", "skills", "skillopt-target"), exist_ok=True)
 
-    skill_path = os.path.join(work_dir, ".agents", "skills", "skillopt-student", "SKILL.md")
+    skill_path = os.path.join(work_dir, ".agents", "skills", "skillopt-target", "SKILL.md")
     with open(skill_path, "w", encoding="utf-8") as f:
         f.write(skill_md)
 
@@ -318,7 +318,7 @@ def parse_codex_raw(raw: str) -> dict:
 
 
 def format_codex_trace_steps(raw: str, *, max_chars: int = 4000) -> str:
-    """Render parsed Codex trace into numbered compact steps for teacher prompts."""
+    """Render parsed Codex trace into numbered compact steps for optimizer prompts."""
     parsed = parse_codex_raw(raw)
     steps = parsed["steps"]
     if not steps:
@@ -474,12 +474,12 @@ def _exec_prompt(prompt: str, *, allow_file_edits: bool = False) -> str:
     )
     return (
         "Use the workspace files to solve the task. Read task.md and the skill at "
-        ".agents/skills/skillopt-student/SKILL.md before answering. "
+        ".agents/skills/skillopt-target/SKILL.md before answering. "
         "If ATTACHMENTS.md exists, read it and inspect the listed local files. "
         "Do not call a Skill tool; the ReflACT guidance is a local markdown file. "
         f"Do not ask for permission. {edit_instruction}"
         "Return only the final answer text, keeping any required <answer>...</answer> tags exactly.\n\n"
-        f"{_normalize_student_exec_prompt(prompt)}"
+        f"{_normalize_target_exec_prompt(prompt)}"
     )
 
 
@@ -489,20 +489,20 @@ def _retry_prompt(prompt: str, attempt: int) -> str:
     return (
         f"{prompt}\n\n"
         "Previous execution returned an empty final response. Re-read task.md and "
-        ".agents/skills/skillopt-student/SKILL.md. If ATTACHMENTS.md exists, use the listed files. "
+        ".agents/skills/skillopt-target/SKILL.md. If ATTACHMENTS.md exists, use the listed files. "
         "Then produce the final answer inside <answer>...</answer>."
     )
 
 
-def _normalize_student_exec_prompt(prompt: str) -> str:
+def _normalize_target_exec_prompt(prompt: str) -> str:
     """Avoid wording that makes Claude Code call an unregistered Skill tool."""
     text = prompt or ""
     replacements = {
-        "Use the `skillopt-student` skill available in this workspace.": (
-            "Read `.agents/skills/skillopt-student/SKILL.md` directly; do not call a Skill tool."
+        "Use the `skillopt-target` skill available in this workspace.": (
+            "Read `.agents/skills/skillopt-target/SKILL.md` directly; do not call a Skill tool."
         ),
-        "- Use the local `skillopt-student` skill before writing code.": (
-            "- Read `.agents/skills/skillopt-student/SKILL.md` before writing code; do not call a Skill tool."
+        "- Use the local `skillopt-target` skill before writing code.": (
+            "- Read `.agents/skills/skillopt-target/SKILL.md` before writing code; do not call a Skill tool."
         ),
     }
     for old, new in replacements.items():
@@ -586,7 +586,7 @@ def _run_claude_code_sdk_exec(
             "preset": "claude_code",
             "append": (
                 "Use the workspace files to solve the task. Read task.md and the skill at "
-                ".agents/skills/skillopt-student/SKILL.md before answering. "
+                ".agents/skills/skillopt-target/SKILL.md before answering. "
                 "If ATTACHMENTS.md exists, read it and inspect the listed local files. "
                 "Do not call a Skill tool; the ReflACT guidance is a local markdown file. "
                 + (
@@ -619,7 +619,7 @@ def _run_claude_code_sdk_exec(
 
         messages = []
         async with ClaudeSDKClient(options) as client:
-            await client.query(_normalize_student_exec_prompt(prompt))
+            await client.query(_normalize_target_exec_prompt(prompt))
             messages = [msg async for msg in client.receive_response()]
         last = messages[-1] if messages else None
         raw_structured_output = _extract_claude_structured_output(messages)
@@ -1016,7 +1016,7 @@ def run_codex_exec(
     return last_response, combined
 
 
-def run_student_exec(
+def run_target_exec(
     *,
     work_dir: str,
     prompt: str,
@@ -1030,7 +1030,7 @@ def run_student_exec(
     full_auto: bool | None = None,
     allow_file_edits: bool = False,
 ) -> tuple[str, str]:
-    backend = get_student_backend()
+    backend = get_target_backend()
     if backend == "codex_exec":
         return run_codex_exec(
             work_dir=work_dir,

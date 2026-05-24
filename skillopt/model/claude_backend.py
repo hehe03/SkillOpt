@@ -19,8 +19,8 @@ CLAUDE_PERMISSION_MODE = os.environ.get("CLAUDE_PERMISSION_MODE", "dontAsk")
 CLAUDE_SETTING_SOURCES = os.environ.get("CLAUDE_SETTING_SOURCES", "user,project")
 CLAUDE_ALLOW_ATTACHMENT_READ = os.environ.get("CLAUDE_ALLOW_ATTACHMENT_READ", "1").strip().lower() not in {"0", "false", "no"}
 
-TEACHER_DEPLOYMENT = os.environ.get("TEACHER_DEPLOYMENT", "claude-sonnet-4-6")
-STUDENT_DEPLOYMENT = os.environ.get("STUDENT_DEPLOYMENT", "claude-sonnet-4-6")
+OPTIMIZER_DEPLOYMENT = os.environ.get("OPTIMIZER_DEPLOYMENT", "claude-sonnet-4-6")
+TARGET_DEPLOYMENT = os.environ.get("TARGET_DEPLOYMENT", "claude-sonnet-4-6")
 REASONING_EFFORT: str | None = None
 _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
@@ -292,7 +292,7 @@ def _compat_message_from_payload(payload: Any) -> CompatAssistantMessage:
 def _call_messages(messages: list[dict[str, Any]], max_completion_tokens: int, retries: int, stage: str, *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, deployment: str | None = None, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
     del max_completion_tokens
     system, prompt, attachments = _build_prompt_from_messages(messages, tools=tools, tool_choice=tool_choice, structured_output=return_message)
-    model = deployment or STUDENT_DEPLOYMENT
+    model = deployment or TARGET_DEPLOYMENT
     last_err = None
     for attempt in range(retries):
         try:
@@ -307,14 +307,14 @@ def _call_messages(messages: list[dict[str, Any]], max_completion_tokens: int, r
     raise RuntimeError(f"Claude backend failed after {retries} retries: {last_err}")
 
 
-def chat_teacher(system: str, user: str, max_completion_tokens: int = 16384, retries: int = 5, stage: str = "teacher", timeout: int | None = None) -> tuple[str, dict[str, int]]:
+def chat_optimizer(system: str, user: str, max_completion_tokens: int = 16384, retries: int = 5, stage: str = "optimizer", timeout: int | None = None) -> tuple[str, dict[str, int]]:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return _call_messages(messages, max_completion_tokens, retries, stage, deployment=TEACHER_DEPLOYMENT, timeout=timeout)
+    return _call_messages(messages, max_completion_tokens, retries, stage, deployment=OPTIMIZER_DEPLOYMENT, timeout=timeout)
 
 
-def chat_student(system: str, user: str, max_completion_tokens: int = 16384, retries: int = 5, stage: str = "student", timeout: int | None = None) -> tuple[str, dict[str, int]]:
+def chat_target(system: str, user: str, max_completion_tokens: int = 16384, retries: int = 5, stage: str = "target", timeout: int | None = None) -> tuple[str, dict[str, int]]:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return _call_messages(messages, max_completion_tokens, retries, stage, deployment=STUDENT_DEPLOYMENT, timeout=timeout)
+    return _call_messages(messages, max_completion_tokens, retries, stage, deployment=TARGET_DEPLOYMENT, timeout=timeout)
 
 
 def chat_with_deployment(deployment: str, system: str, user: str, max_completion_tokens: int = 16384, retries: int = 5, stage: str = "custom", timeout: int | None = None) -> tuple[str, dict[str, int]]:
@@ -322,12 +322,12 @@ def chat_with_deployment(deployment: str, system: str, user: str, max_completion
     return _call_messages(messages, max_completion_tokens, retries, stage, deployment=deployment, timeout=timeout)
 
 
-def chat_teacher_messages(messages: list[dict[str, Any]], max_completion_tokens: int = 16384, retries: int = 5, stage: str = "teacher", *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
-    return _call_messages(messages, max_completion_tokens, retries, stage, tools=tools, tool_choice=tool_choice, return_message=return_message, deployment=TEACHER_DEPLOYMENT, timeout=timeout)
+def chat_optimizer_messages(messages: list[dict[str, Any]], max_completion_tokens: int = 16384, retries: int = 5, stage: str = "optimizer", *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
+    return _call_messages(messages, max_completion_tokens, retries, stage, tools=tools, tool_choice=tool_choice, return_message=return_message, deployment=OPTIMIZER_DEPLOYMENT, timeout=timeout)
 
 
-def chat_student_messages(messages: list[dict[str, Any]], max_completion_tokens: int = 16384, retries: int = 5, stage: str = "student", *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
-    return _call_messages(messages, max_completion_tokens, retries, stage, tools=tools, tool_choice=tool_choice, return_message=return_message, deployment=STUDENT_DEPLOYMENT, timeout=timeout)
+def chat_target_messages(messages: list[dict[str, Any]], max_completion_tokens: int = 16384, retries: int = 5, stage: str = "target", *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
+    return _call_messages(messages, max_completion_tokens, retries, stage, tools=tools, tool_choice=tool_choice, return_message=return_message, deployment=TARGET_DEPLOYMENT, timeout=timeout)
 
 
 def chat_messages_with_deployment(deployment: str, messages: list[dict[str, Any]], max_completion_tokens: int = 16384, retries: int = 5, stage: str = "custom", *, tools: list[dict[str, Any]] | None = None, tool_choice: str | dict[str, Any] | None = None, return_message: bool = False, timeout: int | None = None) -> tuple[Any, dict[str, int]]:
@@ -347,13 +347,13 @@ def set_reasoning_effort(effort: str | None) -> None:
     REASONING_EFFORT = effort if effort else None
 
 
-def set_student_deployment(deployment: str) -> None:
-    global STUDENT_DEPLOYMENT
-    STUDENT_DEPLOYMENT = deployment or default_model_for_backend("claude")
-    os.environ["STUDENT_DEPLOYMENT"] = STUDENT_DEPLOYMENT
+def set_target_deployment(deployment: str) -> None:
+    global TARGET_DEPLOYMENT
+    TARGET_DEPLOYMENT = deployment or default_model_for_backend("claude")
+    os.environ["TARGET_DEPLOYMENT"] = TARGET_DEPLOYMENT
 
 
-def set_teacher_deployment(deployment: str) -> None:
-    global TEACHER_DEPLOYMENT
-    TEACHER_DEPLOYMENT = deployment or default_model_for_backend("claude")
-    os.environ["TEACHER_DEPLOYMENT"] = TEACHER_DEPLOYMENT
+def set_optimizer_deployment(deployment: str) -> None:
+    global OPTIMIZER_DEPLOYMENT
+    OPTIMIZER_DEPLOYMENT = deployment or default_model_for_backend("claude")
+    os.environ["OPTIMIZER_DEPLOYMENT"] = OPTIMIZER_DEPLOYMENT

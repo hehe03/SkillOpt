@@ -7,8 +7,8 @@ Complete reference for all SkillOpt configuration parameters.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `model.backend` | str | `azure_openai` | Backend: `azure_openai` / `openai_chat` / `claude_code_exec` / `qwen` |
-| `model.teacher` | str | `gpt-5.5` | Teacher model (for reflection & slow update) |
-| `model.student` | str | `gpt-5.5` | Student model (for rollout execution) |
+| `model.optimizer` | str | `gpt-5.5` | Optimizer model (for reflection & slow update) |
+| `model.target` | str | `gpt-5.5` | Target model (for rollout execution) |
 | `model.reasoning_effort` | str | `medium` | Reasoning effort level |
 
 ## Training (`train`)
@@ -40,7 +40,7 @@ Complete reference for all SkillOpt configuration parameters.
 | `optimizer.skill_update_mode` | str | `patch` | — | `patch` / `rewrite_from_suggestions` / `full_rewrite_minibatch` |
 | `optimizer.use_slow_update` | bool | `true` | Momentum | Epoch-boundary longitudinal comparison & guidance |
 | `optimizer.slow_update_samples` | int | 20 | — | Samples for slow update evaluation |
-| `optimizer.use_meta_skill` | bool | `true` | Meta-learning | Cross-epoch teacher-side strategy memory |
+| `optimizer.use_meta_skill` | bool | `true` | Meta-learning | Cross-epoch optimizer-side strategy memory |
 | `optimizer.longitudinal_pair_policy` | str | `mixed` | — | `mixed` / `changed` / `unchanged` |
 
 ## Evaluation (`evaluation`)

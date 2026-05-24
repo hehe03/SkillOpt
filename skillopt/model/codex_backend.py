@@ -24,8 +24,8 @@ CODEX_BIN = os.environ.get("CODEX_CLI_BIN", "codex")
 CODEX_PROFILE = os.environ.get("CODEX_PROFILE", "review")
 CODEX_SANDBOX_MODE = os.environ.get("CODEX_SANDBOX_MODE", "read-only")
 
-TEACHER_DEPLOYMENT = os.environ.get("TEACHER_DEPLOYMENT", "gpt-5.5")
-STUDENT_DEPLOYMENT = os.environ.get("STUDENT_DEPLOYMENT", "gpt-5.5")
+OPTIMIZER_DEPLOYMENT = os.environ.get("OPTIMIZER_DEPLOYMENT", "gpt-4o")
+TARGET_DEPLOYMENT = os.environ.get("TARGET_DEPLOYMENT", "gpt-4o")
 
 REASONING_EFFORT: str | None = None
 
@@ -508,16 +508,16 @@ def chat_messages_with_model(
     )
 
 
-def chat_teacher(
+def chat_optimizer(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     timeout: int | None = None,
 ) -> tuple[str, dict[str, int]]:
     return chat_with_model(
-        model=TEACHER_DEPLOYMENT,
+        model=OPTIMIZER_DEPLOYMENT,
         system=system,
         user=user,
         max_completion_tokens=max_completion_tokens,
@@ -547,16 +547,16 @@ def chat_with_deployment(
     )
 
 
-def chat_student(
+def chat_target(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     timeout: int | None = None,
 ) -> tuple[str, dict[str, int]]:
     return chat_with_model(
-        model=STUDENT_DEPLOYMENT,
+        model=TARGET_DEPLOYMENT,
         system=system,
         user=user,
         max_completion_tokens=max_completion_tokens,
@@ -566,11 +566,11 @@ def chat_student(
     )
 
 
-def chat_teacher_messages(
+def chat_optimizer_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     *,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
@@ -578,7 +578,7 @@ def chat_teacher_messages(
     timeout: int | None = None,
 ) -> tuple[Any, dict[str, int]]:
     return _chat_messages_impl(
-        TEACHER_DEPLOYMENT,
+        OPTIMIZER_DEPLOYMENT,
         messages,
         max_completion_tokens,
         retries,
@@ -615,11 +615,11 @@ def chat_messages_with_deployment(
     )
 
 
-def chat_student_messages(
+def chat_target_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     *,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
@@ -627,7 +627,7 @@ def chat_student_messages(
     timeout: int | None = None,
 ) -> tuple[Any, dict[str, int]]:
     return _chat_messages_impl(
-        STUDENT_DEPLOYMENT,
+        TARGET_DEPLOYMENT,
         messages,
         max_completion_tokens,
         retries,
@@ -647,10 +647,10 @@ def reset_token_tracker() -> None:
     tracker.reset()
 
 
-def set_student_deployment(deployment: str) -> None:
-    global STUDENT_DEPLOYMENT
-    STUDENT_DEPLOYMENT = deployment
-    os.environ["STUDENT_DEPLOYMENT"] = deployment
+def set_target_deployment(deployment: str) -> None:
+    global TARGET_DEPLOYMENT
+    TARGET_DEPLOYMENT = deployment
+    os.environ["TARGET_DEPLOYMENT"] = deployment
 
 
 def set_reasoning_effort(effort: str | None) -> None:
@@ -658,7 +658,7 @@ def set_reasoning_effort(effort: str | None) -> None:
     REASONING_EFFORT = effort if effort else None
 
 
-def set_teacher_deployment(deployment: str) -> None:
-    global TEACHER_DEPLOYMENT
-    TEACHER_DEPLOYMENT = deployment
-    os.environ["TEACHER_DEPLOYMENT"] = deployment
+def set_optimizer_deployment(deployment: str) -> None:
+    global OPTIMIZER_DEPLOYMENT
+    OPTIMIZER_DEPLOYMENT = deployment
+    os.environ["OPTIMIZER_DEPLOYMENT"] = deployment

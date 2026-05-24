@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import json
 import os
 
-from skillopt.gradient.deep_probe import generate_deep_probe_instruction
 from skillopt.datasets.base import BatchSpec
 from skillopt.envs.base import EnvAdapter
 from skillopt.envs.alfworld.dataloader import ALFWorldDataLoader
@@ -82,11 +81,7 @@ class ALFWorldAdapter(EnvAdapter):
         analyst_workers: int = 16,
         failure_only: bool = False,
         minibatch_size: int = 8,
-        edit_budget: int = 4,
-        use_deep_reflect: bool = False,
-        deep_reflect_failures: int = 4,
-        deep_reflect_successes: int = 2,
-    ) -> None:
+        edit_budget: int = 4,    ) -> None:
         self.max_steps = max_steps
         self.workers = max(int(workers or 1), 1)
         self.max_api_workers = max_api_workers
@@ -94,9 +89,6 @@ class ALFWorldAdapter(EnvAdapter):
         self.failure_only = failure_only
         self.minibatch_size = minibatch_size
         self.edit_budget = edit_budget
-        self.use_deep_reflect = use_deep_reflect
-        self.deep_reflect_failures = deep_reflect_failures
-        self.deep_reflect_successes = deep_reflect_successes
         self.dataloader = ALFWorldDataLoader(
             split_dir=split_dir,
             data_path=data_path,
@@ -457,129 +449,6 @@ class ALFWorldAdapter(EnvAdapter):
             meta_skill_context=meta_skill_context,
         )
 
-    def deep_reflect(
-        self,
-        results: list[dict],
-        skill_content: str,
-        out_dir: str,
-        **kwargs,
-    ) -> list[dict | None]:
-        if not self.use_deep_reflect:
-            return []
-
-        prediction_dir = kwargs.get("prediction_dir", os.path.join(out_dir, "predictions"))
-        random_seed = kwargs.get("random_seed")
-        step_buffer_context = kwargs.get("step_buffer_context", "")
-        meta_skill_context = kwargs.get("meta_skill_context", "")
-        selected_items = self.select_representative_items(
-            results,
-            results,
-            n_failures=self.deep_reflect_failures,
-            n_successes=self.deep_reflect_successes,
-            seed=random_seed,
-        )
-        if not selected_items:
-            return []
-
-        selected_ids = {str(item["id"]) for item in selected_items}
-        selected_results = [row for row in results if str(row.get("id")) in selected_ids]
-        selected_examples = self.attach_reference_context(selected_results, selected_items)
-
-        field_counts: dict[str, int] = {}
-        selected_metadata: list[dict] = []
-        for item in selected_items:
-            meta = self.get_reference_metadata(item)
-            for field in meta["fields"]:
-                field_counts[field] = field_counts.get(field, 0) + 1
-            selected_metadata.append({
-                "id": str(item["id"]),
-                "task_type": str(item.get("task_type") or "alfworld"),
-                "gamefile": str(item.get("gamefile") or ""),
-                "reference_fields": meta["fields"],
-                "reference_preview": meta["preview"],
-            })
-
-        deep_dir = os.path.join(out_dir, "deep_reflect")
-        rollout_dir = os.path.join(deep_dir, "rollout")
-        patches_dir = os.path.join(deep_dir, "patches")
-        os.makedirs(deep_dir, exist_ok=True)
-        field_summary = ", ".join(
-            f"{field}({count}/{len(selected_items)})"
-            for field, count in sorted(field_counts.items())
-        ) or "none"
-        print(
-            f"    [2b/6 DEEP REFLECT setup] selected={len(selected_items)} "
-            f"reference_fields={field_summary}"
-        )
-        probe = generate_deep_probe_instruction(
-            skill_content=skill_content,
-            items=selected_examples,
-            prediction_dir=prediction_dir,
-            system_prompt=self.get_deep_probe_prompt(),
-            step_buffer_context=step_buffer_context,
-            meta_skill_context=meta_skill_context,
-            output_requirements=[
-                "- Some trajectories may include a hidden Reference block. Use it to target the student's latent subgoal, missing precondition, or next-step intent, but do not reveal or paraphrase that reference to the student.",
-                "- The instruction must request a brief diagnostic readout inside the existing <think>...</think> block.",
-                "- The student must still output exactly one admissible action inside <action>...</action>.",
-                "- Do not ask for exhaustive inventories, full plans, or long chain-of-thought.",
-                "- The instruction text should be ready to append directly to the student's prompt.",
-            ],
-        )
-        if not probe:
-            return []
-
-        with open(os.path.join(deep_dir, "probe.json"), "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    **probe,
-                    "reference_summary": {
-                        "selected_count": len(selected_items),
-                        "field_counts": field_counts,
-                    },
-                    "selected_examples": selected_metadata,
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-
-        gamefiles = [str(item.get("gamefile") or "") for item in selected_items]
-        if any(not gamefile for gamefile in gamefiles):
-            return []
-        eval_dataset, is_train = self._infer_dataset_from_gamefile(gamefiles[0])
-        deep_env = ALFWorldBatchRun(
-            env_num=len(selected_items),
-            eval_dataset=eval_dataset,
-            seed=random_seed or 42,
-            is_train=is_train,
-            specific_gamefiles=gamefiles,
-            workers=min(self.workers, max(len(selected_items), 1)),
-            result_ids=[str(item["id"]) for item in selected_items],
-        )
-        deep_results = self._run_batch(
-            deep_env,
-            skill_content=skill_content,
-            out_dir=rollout_dir,
-            diagnostic_mode=True,
-            diagnostic_instruction=probe["probe_instruction"],
-        )
-        deep_results = self.attach_reference_context(deep_results, selected_items)
-        return run_minibatch_reflect(
-            results=deep_results,
-            skill_content=skill_content,
-            prediction_dir=os.path.join(rollout_dir, "predictions"),
-            patches_dir=patches_dir,
-            workers=self.analyst_workers,
-            failure_only=self.failure_only,
-            minibatch_size=self.minibatch_size,
-            edit_budget=self.edit_budget,
-            random_seed=random_seed,
-            error_system=self.get_error_minibatch_prompt(),
-            success_system=self.get_success_minibatch_prompt(),
-            step_buffer_context=step_buffer_context,
-            meta_skill_context=meta_skill_context,
-        )
 
     def get_task_types(self) -> list[str]:
         return list(TASKS)

@@ -10,7 +10,6 @@ gradient:
 
 optimizer:
   learning_rate: 4
-  use_meta_reflect: false
 
 evaluation:
   sel_env_num: 0

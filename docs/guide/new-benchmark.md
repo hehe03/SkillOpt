@@ -76,7 +76,7 @@ class MyBenchmarkEnv(EnvAdapter):
         Args:
             item: The data item to process
             skill: Current skill document content
-            model: The student model instance
+            model: The target model instance
             
         Returns:
             TaskResult with prediction, score, and trajectory

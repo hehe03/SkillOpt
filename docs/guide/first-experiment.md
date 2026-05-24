@@ -33,7 +33,7 @@ optimizer:
   learning_rate: 4        # (max edits per step)
   lr_scheduler: cosine    # (learning rate schedule)
   use_slow_update: true   # (momentum at epoch boundary)
-  use_meta_skill: true    # (cross-epoch teacher memory)
+  use_meta_skill: true    # (cross-epoch optimizer memory)
 
 gradient:
   analyst_workers: 16     # (parallel reflection workers)

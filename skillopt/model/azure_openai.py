@@ -1,6 +1,6 @@
 """ReflACT Model backend — Azure OpenAI wrapper with token tracking.
 
-Provides teacher/student dual-deployment chat functions and a global
+Provides optimizer/target dual-deployment chat functions and a global
 TokenTracker for per-stage cost accounting. Previously llm/azure_openai.py.
 """
 from __future__ import annotations
@@ -35,69 +35,69 @@ MANAGED_IDENTITY_CLIENT_ID = os.environ.get(
     "",
 ).strip()
 
-TEACHER_ENDPOINT = (
-    os.environ.get("TEACHER_AZURE_OPENAI_ENDPOINT")
-    or os.environ.get("AZURE_OPENAI_TEACHER_ENDPOINT")
+OPTIMIZER_ENDPOINT = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_ENDPOINT")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_ENDPOINT")
     or ENDPOINT
 )
-STUDENT_ENDPOINT = (
-    os.environ.get("STUDENT_AZURE_OPENAI_ENDPOINT")
-    or os.environ.get("AZURE_OPENAI_STUDENT_ENDPOINT")
+TARGET_ENDPOINT = (
+    os.environ.get("TARGET_AZURE_OPENAI_ENDPOINT")
+    or os.environ.get("AZURE_OPENAI_TARGET_ENDPOINT")
     or ENDPOINT
 )
-TEACHER_API_VERSION = (
-    os.environ.get("TEACHER_AZURE_OPENAI_API_VERSION")
-    or os.environ.get("AZURE_OPENAI_TEACHER_API_VERSION")
+OPTIMIZER_API_VERSION = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_API_VERSION")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_API_VERSION")
     or API_VERSION
 )
-STUDENT_API_VERSION = (
-    os.environ.get("STUDENT_AZURE_OPENAI_API_VERSION")
-    or os.environ.get("AZURE_OPENAI_STUDENT_API_VERSION")
+TARGET_API_VERSION = (
+    os.environ.get("TARGET_AZURE_OPENAI_API_VERSION")
+    or os.environ.get("AZURE_OPENAI_TARGET_API_VERSION")
     or API_VERSION
 )
-TEACHER_API_KEY = (
-    os.environ.get("TEACHER_AZURE_OPENAI_API_KEY")
-    or os.environ.get("AZURE_OPENAI_TEACHER_API_KEY")
+OPTIMIZER_API_KEY = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_API_KEY")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_API_KEY")
     or API_KEY
 )
-STUDENT_API_KEY = (
-    os.environ.get("STUDENT_AZURE_OPENAI_API_KEY")
-    or os.environ.get("AZURE_OPENAI_STUDENT_API_KEY")
+TARGET_API_KEY = (
+    os.environ.get("TARGET_AZURE_OPENAI_API_KEY")
+    or os.environ.get("AZURE_OPENAI_TARGET_API_KEY")
     or API_KEY
 )
-TEACHER_AUTH_MODE = (
-    os.environ.get("TEACHER_AZURE_OPENAI_AUTH_MODE")
-    or os.environ.get("AZURE_OPENAI_TEACHER_AUTH_MODE")
+OPTIMIZER_AUTH_MODE = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_AUTH_MODE")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_AUTH_MODE")
     or AUTH_MODE
 ).strip().lower()
-STUDENT_AUTH_MODE = (
-    os.environ.get("STUDENT_AZURE_OPENAI_AUTH_MODE")
-    or os.environ.get("AZURE_OPENAI_STUDENT_AUTH_MODE")
+TARGET_AUTH_MODE = (
+    os.environ.get("TARGET_AZURE_OPENAI_AUTH_MODE")
+    or os.environ.get("AZURE_OPENAI_TARGET_AUTH_MODE")
     or AUTH_MODE
 ).strip().lower()
-TEACHER_AD_SCOPE = (
-    os.environ.get("TEACHER_AZURE_OPENAI_AD_SCOPE")
-    or os.environ.get("AZURE_OPENAI_TEACHER_AD_SCOPE")
+OPTIMIZER_AD_SCOPE = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_AD_SCOPE")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_AD_SCOPE")
     or AD_SCOPE
 )
-STUDENT_AD_SCOPE = (
-    os.environ.get("STUDENT_AZURE_OPENAI_AD_SCOPE")
-    or os.environ.get("AZURE_OPENAI_STUDENT_AD_SCOPE")
+TARGET_AD_SCOPE = (
+    os.environ.get("TARGET_AZURE_OPENAI_AD_SCOPE")
+    or os.environ.get("AZURE_OPENAI_TARGET_AD_SCOPE")
     or AD_SCOPE
 )
-TEACHER_MANAGED_IDENTITY_CLIENT_ID = (
-    os.environ.get("TEACHER_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID")
-    or os.environ.get("AZURE_OPENAI_TEACHER_MANAGED_IDENTITY_CLIENT_ID")
+OPTIMIZER_MANAGED_IDENTITY_CLIENT_ID = (
+    os.environ.get("OPTIMIZER_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID")
+    or os.environ.get("AZURE_OPENAI_OPTIMIZER_MANAGED_IDENTITY_CLIENT_ID")
     or MANAGED_IDENTITY_CLIENT_ID
 ).strip()
-STUDENT_MANAGED_IDENTITY_CLIENT_ID = (
-    os.environ.get("STUDENT_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID")
-    or os.environ.get("AZURE_OPENAI_STUDENT_MANAGED_IDENTITY_CLIENT_ID")
+TARGET_MANAGED_IDENTITY_CLIENT_ID = (
+    os.environ.get("TARGET_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID")
+    or os.environ.get("AZURE_OPENAI_TARGET_MANAGED_IDENTITY_CLIENT_ID")
     or MANAGED_IDENTITY_CLIENT_ID
 ).strip()
 
-TEACHER_DEPLOYMENT = os.environ.get("TEACHER_DEPLOYMENT", "gpt-5.5")
-STUDENT_DEPLOYMENT = os.environ.get("STUDENT_DEPLOYMENT", "gpt-5.5")
+OPTIMIZER_DEPLOYMENT = os.environ.get("OPTIMIZER_DEPLOYMENT", "gpt-4o")
+TARGET_DEPLOYMENT = os.environ.get("TARGET_DEPLOYMENT", "gpt-4o")
 
 REASONING_EFFORT: str | None = None
 
@@ -177,30 +177,30 @@ tracker = TokenTracker()
 
 # ── Client management ─────────────────────────────────────────────────────────
 
-_teacher_client: AzureOpenAI | None = None
-_student_client: AzureOpenAI | None = None
-_teacher_lock = threading.Lock()
-_student_lock = threading.Lock()
+_optimizer_client: AzureOpenAI | None = None
+_target_client: AzureOpenAI | None = None
+_optimizer_lock = threading.Lock()
+_target_lock = threading.Lock()
 
 
 def _role_config(role: str) -> dict[str, str]:
-    if role == "teacher":
+    if role == "optimizer":
         return {
-            "endpoint": TEACHER_ENDPOINT,
-            "api_version": TEACHER_API_VERSION,
-            "api_key": TEACHER_API_KEY,
-            "auth_mode": TEACHER_AUTH_MODE,
-            "ad_scope": TEACHER_AD_SCOPE,
-            "managed_identity_client_id": TEACHER_MANAGED_IDENTITY_CLIENT_ID,
+            "endpoint": OPTIMIZER_ENDPOINT,
+            "api_version": OPTIMIZER_API_VERSION,
+            "api_key": OPTIMIZER_API_KEY,
+            "auth_mode": OPTIMIZER_AUTH_MODE,
+            "ad_scope": OPTIMIZER_AD_SCOPE,
+            "managed_identity_client_id": OPTIMIZER_MANAGED_IDENTITY_CLIENT_ID,
         }
-    if role == "student":
+    if role == "target":
         return {
-            "endpoint": STUDENT_ENDPOINT,
-            "api_version": STUDENT_API_VERSION,
-            "api_key": STUDENT_API_KEY,
-            "auth_mode": STUDENT_AUTH_MODE,
-            "ad_scope": STUDENT_AD_SCOPE,
-            "managed_identity_client_id": STUDENT_MANAGED_IDENTITY_CLIENT_ID,
+            "endpoint": TARGET_ENDPOINT,
+            "api_version": TARGET_API_VERSION,
+            "api_key": TARGET_API_KEY,
+            "auth_mode": TARGET_AUTH_MODE,
+            "ad_scope": TARGET_AD_SCOPE,
+            "managed_identity_client_id": TARGET_MANAGED_IDENTITY_CLIENT_ID,
         }
     raise ValueError(f"Unknown Azure OpenAI client role: {role!r}")
 
@@ -280,6 +280,12 @@ def _make_azure_cli_token_provider(ad_scope: str):
 
 def _make_client(role: str) -> AzureOpenAI:
     cfg = _role_config(role)
+    if not cfg["endpoint"]:
+        raise ValueError(
+            f"Azure OpenAI endpoint is not configured for {role}. "
+            "Pass --azure_openai_endpoint https://your-resource.openai.azure.com/ "
+            "or set AZURE_OPENAI_ENDPOINT in your environment."
+        )
     auth_mode = cfg["auth_mode"]
     if auth_mode in {"api_key", "key"}:
         if not cfg["api_key"]:
@@ -303,29 +309,29 @@ def _make_client(role: str) -> AzureOpenAI:
     )
 
 
-def get_teacher_client() -> AzureOpenAI:
-    global _teacher_client
-    with _teacher_lock:
-        if _teacher_client is None:
-            _teacher_client = _make_client("teacher")
-        return _teacher_client
+def get_optimizer_client() -> AzureOpenAI:
+    global _optimizer_client
+    with _optimizer_lock:
+        if _optimizer_client is None:
+            _optimizer_client = _make_client("optimizer")
+        return _optimizer_client
 
 
-def get_student_client() -> AzureOpenAI | OpenAI:
-    global _student_client
-    with _student_lock:
-        if _student_client is None:
+def get_target_client() -> AzureOpenAI | OpenAI:
+    global _target_client
+    with _target_lock:
+        if _target_client is None:
             # When using qwen_chat backend, return an OpenAI client pointing to vLLM
-            from skillopt.model.backend_config import get_student_backend
-            if get_student_backend() == "qwen_chat":
+            from skillopt.model.backend_config import get_target_backend
+            if get_target_backend() == "qwen_chat":
                 from skillopt.model import qwen_backend as _qwen
-                _student_client = OpenAI(
+                _target_client = OpenAI(
                     base_url=_qwen.BASE_URL,
                     api_key=_qwen.API_KEY or "dummy",
                 )
             else:
-                _student_client = _make_client("student")
-        return _student_client
+                _target_client = _make_client("target")
+        return _target_client
 
 
 def _needs_responses_api(deployment: str) -> bool:
@@ -587,25 +593,25 @@ def configure_azure_openai(
     auth_mode: str | None = None,
     ad_scope: str | None = None,
     managed_identity_client_id: str | None = None,
-    teacher_endpoint: str | None = None,
-    teacher_api_version: str | None = None,
-    teacher_api_key: str | None = None,
-    teacher_auth_mode: str | None = None,
-    teacher_ad_scope: str | None = None,
-    teacher_managed_identity_client_id: str | None = None,
-    student_endpoint: str | None = None,
-    student_api_version: str | None = None,
-    student_api_key: str | None = None,
-    student_auth_mode: str | None = None,
-    student_ad_scope: str | None = None,
-    student_managed_identity_client_id: str | None = None,
+    optimizer_endpoint: str | None = None,
+    optimizer_api_version: str | None = None,
+    optimizer_api_key: str | None = None,
+    optimizer_auth_mode: str | None = None,
+    optimizer_ad_scope: str | None = None,
+    optimizer_managed_identity_client_id: str | None = None,
+    target_endpoint: str | None = None,
+    target_api_version: str | None = None,
+    target_api_key: str | None = None,
+    target_auth_mode: str | None = None,
+    target_ad_scope: str | None = None,
+    target_managed_identity_client_id: str | None = None,
 ) -> None:
     global ENDPOINT, API_VERSION, API_KEY, AUTH_MODE, AD_SCOPE, MANAGED_IDENTITY_CLIENT_ID
-    global TEACHER_ENDPOINT, TEACHER_API_VERSION, TEACHER_API_KEY, TEACHER_AUTH_MODE
-    global TEACHER_AD_SCOPE, TEACHER_MANAGED_IDENTITY_CLIENT_ID
-    global STUDENT_ENDPOINT, STUDENT_API_VERSION, STUDENT_API_KEY, STUDENT_AUTH_MODE
-    global STUDENT_AD_SCOPE, STUDENT_MANAGED_IDENTITY_CLIENT_ID
-    global _teacher_client, _student_client
+    global OPTIMIZER_ENDPOINT, OPTIMIZER_API_VERSION, OPTIMIZER_API_KEY, OPTIMIZER_AUTH_MODE
+    global OPTIMIZER_AD_SCOPE, OPTIMIZER_MANAGED_IDENTITY_CLIENT_ID
+    global TARGET_ENDPOINT, TARGET_API_VERSION, TARGET_API_KEY, TARGET_AUTH_MODE
+    global TARGET_AD_SCOPE, TARGET_MANAGED_IDENTITY_CLIENT_ID
+    global _optimizer_client, _target_client
 
     def _clean(value: str | None, *, lower: bool = False) -> str | None:
         if value is None:
@@ -641,72 +647,72 @@ def configure_azure_openai(
         "AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID",
     )
 
-    resolved_teacher_endpoint = _clean(teacher_endpoint) or shared_endpoint
-    resolved_teacher_api_version = _clean(teacher_api_version) or shared_api_version
-    resolved_teacher_api_key = _clean(teacher_api_key) or shared_api_key
-    resolved_teacher_auth_mode = _clean(teacher_auth_mode, lower=True) or shared_auth_mode
-    resolved_teacher_ad_scope = _clean(teacher_ad_scope) or shared_ad_scope
-    resolved_teacher_mi = (
-        _clean(teacher_managed_identity_client_id)
+    resolved_optimizer_endpoint = _clean(optimizer_endpoint) or shared_endpoint
+    resolved_optimizer_api_version = _clean(optimizer_api_version) or shared_api_version
+    resolved_optimizer_api_key = _clean(optimizer_api_key) or shared_api_key
+    resolved_optimizer_auth_mode = _clean(optimizer_auth_mode, lower=True) or shared_auth_mode
+    resolved_optimizer_ad_scope = _clean(optimizer_ad_scope) or shared_ad_scope
+    resolved_optimizer_mi = (
+        _clean(optimizer_managed_identity_client_id)
         or shared_managed_identity_client_id
     )
-    resolved_student_endpoint = _clean(student_endpoint) or shared_endpoint
-    resolved_student_api_version = _clean(student_api_version) or shared_api_version
-    resolved_student_api_key = _clean(student_api_key) or shared_api_key
-    resolved_student_auth_mode = _clean(student_auth_mode, lower=True) or shared_auth_mode
-    resolved_student_ad_scope = _clean(student_ad_scope) or shared_ad_scope
-    resolved_student_mi = (
-        _clean(student_managed_identity_client_id)
+    resolved_target_endpoint = _clean(target_endpoint) or shared_endpoint
+    resolved_target_api_version = _clean(target_api_version) or shared_api_version
+    resolved_target_api_key = _clean(target_api_key) or shared_api_key
+    resolved_target_auth_mode = _clean(target_auth_mode, lower=True) or shared_auth_mode
+    resolved_target_ad_scope = _clean(target_ad_scope) or shared_ad_scope
+    resolved_target_mi = (
+        _clean(target_managed_identity_client_id)
         or shared_managed_identity_client_id
     )
 
-    _set("TEACHER_ENDPOINT", resolved_teacher_endpoint, "TEACHER_AZURE_OPENAI_ENDPOINT")
+    _set("OPTIMIZER_ENDPOINT", resolved_optimizer_endpoint, "OPTIMIZER_AZURE_OPENAI_ENDPOINT")
     _set(
-        "TEACHER_API_VERSION",
-        resolved_teacher_api_version,
-        "TEACHER_AZURE_OPENAI_API_VERSION",
+        "OPTIMIZER_API_VERSION",
+        resolved_optimizer_api_version,
+        "OPTIMIZER_AZURE_OPENAI_API_VERSION",
     )
-    _set("TEACHER_API_KEY", resolved_teacher_api_key, "TEACHER_AZURE_OPENAI_API_KEY")
-    _set("TEACHER_AUTH_MODE", resolved_teacher_auth_mode, "TEACHER_AZURE_OPENAI_AUTH_MODE")
-    _set("TEACHER_AD_SCOPE", resolved_teacher_ad_scope, "TEACHER_AZURE_OPENAI_AD_SCOPE")
+    _set("OPTIMIZER_API_KEY", resolved_optimizer_api_key, "OPTIMIZER_AZURE_OPENAI_API_KEY")
+    _set("OPTIMIZER_AUTH_MODE", resolved_optimizer_auth_mode, "OPTIMIZER_AZURE_OPENAI_AUTH_MODE")
+    _set("OPTIMIZER_AD_SCOPE", resolved_optimizer_ad_scope, "OPTIMIZER_AZURE_OPENAI_AD_SCOPE")
     _set(
-        "TEACHER_MANAGED_IDENTITY_CLIENT_ID",
-        resolved_teacher_mi,
-        "TEACHER_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID",
+        "OPTIMIZER_MANAGED_IDENTITY_CLIENT_ID",
+        resolved_optimizer_mi,
+        "OPTIMIZER_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID",
     )
-    _set("STUDENT_ENDPOINT", resolved_student_endpoint, "STUDENT_AZURE_OPENAI_ENDPOINT")
+    _set("TARGET_ENDPOINT", resolved_target_endpoint, "TARGET_AZURE_OPENAI_ENDPOINT")
     _set(
-        "STUDENT_API_VERSION",
-        resolved_student_api_version,
-        "STUDENT_AZURE_OPENAI_API_VERSION",
+        "TARGET_API_VERSION",
+        resolved_target_api_version,
+        "TARGET_AZURE_OPENAI_API_VERSION",
     )
-    _set("STUDENT_API_KEY", resolved_student_api_key, "STUDENT_AZURE_OPENAI_API_KEY")
-    _set("STUDENT_AUTH_MODE", resolved_student_auth_mode, "STUDENT_AZURE_OPENAI_AUTH_MODE")
-    _set("STUDENT_AD_SCOPE", resolved_student_ad_scope, "STUDENT_AZURE_OPENAI_AD_SCOPE")
+    _set("TARGET_API_KEY", resolved_target_api_key, "TARGET_AZURE_OPENAI_API_KEY")
+    _set("TARGET_AUTH_MODE", resolved_target_auth_mode, "TARGET_AZURE_OPENAI_AUTH_MODE")
+    _set("TARGET_AD_SCOPE", resolved_target_ad_scope, "TARGET_AZURE_OPENAI_AD_SCOPE")
     _set(
-        "STUDENT_MANAGED_IDENTITY_CLIENT_ID",
-        resolved_student_mi,
-        "STUDENT_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID",
+        "TARGET_MANAGED_IDENTITY_CLIENT_ID",
+        resolved_target_mi,
+        "TARGET_AZURE_OPENAI_MANAGED_IDENTITY_CLIENT_ID",
     )
 
-    with _teacher_lock:
-        _teacher_client = None
-    with _student_lock:
-        _student_client = None
+    with _optimizer_lock:
+        _optimizer_client = None
+    with _target_lock:
+        _target_client = None
 
 
-def chat_teacher(
+def chat_optimizer(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     reasoning_effort: str | None = None,
     timeout: int | None = None,
 ) -> tuple[str, dict]:
-    """Call the teacher model.  Returns (response_text, usage_dict)."""
+    """Call the optimizer model.  Returns (response_text, usage_dict)."""
     return _chat_impl(
-        get_teacher_client(), TEACHER_DEPLOYMENT,
+        get_optimizer_client(), OPTIMIZER_DEPLOYMENT,
         system, user, max_completion_tokens, retries, stage, reasoning_effort, timeout,
     )
 
@@ -723,7 +729,7 @@ def chat_with_deployment(
 ) -> tuple[str, dict]:
     """Call an arbitrary deployment using the shared Azure client."""
     return _chat_impl(
-        get_teacher_client(),
+        get_optimizer_client(),
         deployment,
         system,
         user,
@@ -735,27 +741,27 @@ def chat_with_deployment(
     )
 
 
-def chat_student(
+def chat_target(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     reasoning_effort: str | None = None,
     timeout: int | None = None,
 ) -> tuple[str, dict]:
-    """Call the student model.  Returns (response_text, usage_dict)."""
+    """Call the target model.  Returns (response_text, usage_dict)."""
     return _chat_impl(
-        get_student_client(), STUDENT_DEPLOYMENT,
+        get_target_client(), TARGET_DEPLOYMENT,
         system, user, max_completion_tokens, retries, stage, reasoning_effort, timeout,
     )
 
 
-def chat_teacher_messages(
+def chat_optimizer_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     reasoning_effort: str | None = None,
     *,
     tools: list[dict[str, Any]] | None = None,
@@ -763,10 +769,10 @@ def chat_teacher_messages(
     return_message: bool = False,
     timeout: int | None = None,
 ) -> tuple[Any, dict]:
-    """Call the teacher model with a pre-built chat message list."""
+    """Call the optimizer model with a pre-built chat message list."""
     return _chat_messages_impl(
-        get_teacher_client(),
-        TEACHER_DEPLOYMENT,
+        get_optimizer_client(),
+        OPTIMIZER_DEPLOYMENT,
         messages,
         max_completion_tokens,
         retries,
@@ -794,7 +800,7 @@ def chat_messages_with_deployment(
 ) -> tuple[Any, dict]:
     """Call an arbitrary deployment with a pre-built chat message list."""
     return _chat_messages_impl(
-        get_teacher_client(),
+        get_optimizer_client(),
         deployment,
         messages,
         max_completion_tokens,
@@ -808,11 +814,11 @@ def chat_messages_with_deployment(
     )
 
 
-def chat_student_messages(
+def chat_target_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     reasoning_effort: str | None = None,
     *,
     tools: list[dict[str, Any]] | None = None,
@@ -820,10 +826,10 @@ def chat_student_messages(
     return_message: bool = False,
     timeout: int | None = None,
 ) -> tuple[Any, dict]:
-    """Call the student model with a pre-built chat message list."""
+    """Call the target model with a pre-built chat message list."""
     return _chat_messages_impl(
-        get_student_client(),
-        STUDENT_DEPLOYMENT,
+        get_target_client(),
+        TARGET_DEPLOYMENT,
         messages,
         max_completion_tokens,
         retries,
@@ -845,14 +851,14 @@ def reset_token_tracker() -> None:
     tracker.reset()
 
 
-def set_student_deployment(deployment: str) -> None:
-    """Change student deployment at runtime."""
-    global _student_client, STUDENT_DEPLOYMENT
-    STUDENT_DEPLOYMENT = deployment
-    os.environ["STUDENT_DEPLOYMENT"] = deployment
+def set_target_deployment(deployment: str) -> None:
+    """Change target deployment at runtime."""
+    global _target_client, TARGET_DEPLOYMENT
+    TARGET_DEPLOYMENT = deployment
+    os.environ["TARGET_DEPLOYMENT"] = deployment
     os.environ["AZURE_OPENAI_DEPLOYMENT"] = deployment
-    with _student_lock:
-        _student_client = None
+    with _target_lock:
+        _target_client = None
     try:
         import llm_client as _legacy
         _legacy.DEPLOYMENT = deployment
@@ -872,10 +878,10 @@ def get_reasoning_effort() -> str | None:
     return REASONING_EFFORT
 
 
-def set_teacher_deployment(deployment: str) -> None:
-    """Change teacher deployment at runtime."""
-    global _teacher_client, TEACHER_DEPLOYMENT
-    TEACHER_DEPLOYMENT = deployment
-    os.environ["TEACHER_DEPLOYMENT"] = deployment
-    with _teacher_lock:
-        _teacher_client = None
+def set_optimizer_deployment(deployment: str) -> None:
+    """Change optimizer deployment at runtime."""
+    global _optimizer_client, OPTIMIZER_DEPLOYMENT
+    OPTIMIZER_DEPLOYMENT = deployment
+    os.environ["OPTIMIZER_DEPLOYMENT"] = deployment
+    with _optimizer_lock:
+        _optimizer_client = None

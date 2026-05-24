@@ -4,7 +4,7 @@ Benchmark Environment Template
 Copy this file and implement the TODO sections to add a new benchmark.
 
 The EnvAdapter is responsible for:
-1. Executing tasks using the student model + current skill document
+1. Executing tasks using the target model + current skill document
 2. Evaluating predictions against ground truth
 3. Returning structured results for the training loop
 """
@@ -25,12 +25,12 @@ class TemplateBenchmarkEnv(EnvAdapter):
 
     async def execute(self, item, skill: str, model):
         """
-        Execute a single task with the student model.
+        Execute a single task with the target model.
 
         Args:
             item: DataItem with .id, .input, .ground_truth, .metadata
             skill: Current skill document content (Markdown string)
-            model: Student model backend instance
+            model: Target model backend instance
 
         Returns:
             TaskResult with prediction, score, and trajectory
@@ -38,7 +38,7 @@ class TemplateBenchmarkEnv(EnvAdapter):
         # Step 1: Build the prompt combining skill + task input
         prompt = self.build_prompt(item, skill)
 
-        # Step 2: Call the student model
+        # Step 2: Call the target model
         # TODO: Customize the message format for your benchmark
         messages = [
             {"role": "system", "content": skill},

@@ -10,7 +10,7 @@ the batch and propose a concise set of skill-revision suggestions.
 2. Identify the most prevalent, systematic failure patterns across them.
 3. For each pattern, classify its failure type.
 4. Propose revision suggestions that address the COMMON patterns, not individual edge cases.
-5. Suggestions must be generalizable and should help a later teacher rewrite the full skill document.
+5. Suggestions must be generalizable and should help a later optimizer rewrite the full skill document.
 6. Do not hardcode task-specific values.
 
 You will be told the maximum number of suggestions (the budget L). Produce AT MOST L suggestions,
@@ -29,7 +29,7 @@ Respond ONLY with a valid JSON object (no markdown fences, no extra text):
         "type": "add_rule|remove_rule|merge_rules|reorganize|compress|clarify",
         "title": "<short title>",
         "motivation": "<why this matters>",
-        "instruction": "<what the rewriting teacher should change in the skill>",
+        "instruction": "<what the rewriting optimizer should change in the skill>",
         "priority_hint": "high|medium|low"
       }
     ]

@@ -30,12 +30,12 @@ def _timeout_handler(signum, frame):
 
 from skillopt.model.azure_openai import (
     get_reasoning_effort,
-    get_student_client,
+    get_target_client,
     _needs_responses_api,
     tracker,
 )
-from skillopt.model import get_codex_exec_config, get_student_backend, is_student_exec_backend
-from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_student_exec
+from skillopt.model import get_codex_exec_config, get_target_backend, is_target_exec_backend
+from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_target_exec
 from skillopt.prompts import load_prompt
 from skillopt.envs.spreadsheetbench.executor import run_generated_code
 from skillopt.envs.spreadsheetbench.evaluator import evaluate
@@ -44,13 +44,13 @@ from skillopt.envs.spreadsheetbench.evaluator import evaluate
 # ── Eval feedback helper (no golden value leakage) ─────────────────────────
 
 def _build_eval_feedback(verify_report: str) -> str:
-    """Build Student feedback from a verify report, hiding expected values.
+    """Build Target feedback from a verify report, hiding expected values.
 
     The verify report contains lines like:
         Sheet1!D2: got=None, expected=0 ✗
         Sheet1!D10: got=None, expected=None ✓
 
-    We strip the ``expected=...`` part so the Student sees only its own
+    We strip the ``expected=...`` part so the Target sees only its own
     output and whether each cell is correct or wrong.
     """
     import re
@@ -203,7 +203,7 @@ def _llm_call_with_retry(call_fn, *, retries: int = 5, timeout: int = 120):
 
 def _get_deployment() -> str:
     from skillopt.model import azure_openai as _llm
-    return _llm.STUDENT_DEPLOYMENT
+    return _llm.TARGET_DEPLOYMENT
 
 
 def _build_codex_skill(skill_content: str) -> str:
@@ -242,7 +242,7 @@ def _build_codex_task(
     return (
         f"{prompt}\n\n"
         "## Codex Harness Task\n"
-        "- Read `.agents/skills/skillopt-student/SKILL.md` before writing code; do not call a Skill tool.\n"
+        "- Read `.agents/skills/skillopt-target/SKILL.md` before writing code; do not call a Skill tool.\n"
         "- Read and optionally inspect `input.xlsx` in this workspace.\n"
         "- Write the final Python solution to `solution.py`.\n"
         "- The script should use the provided `INPUT_PATH` and `OUTPUT_PATH` variables.\n"
@@ -296,7 +296,7 @@ def _prepare_codex_workspace(
         diagnostic_trace_context=diagnostic_trace_context,
     )
     prompt = (
-        "Read `.agents/skills/skillopt-student/SKILL.md` directly; do not call a Skill tool.\n"
+        "Read `.agents/skills/skillopt-target/SKILL.md` directly; do not call a Skill tool.\n"
         "Read `task.md`, inspect `input.xlsx` if useful, and write the final solution to `solution.py`.\n"
         "You may run `python run_solution.py` to validate the script locally.\n"
         "In your final response, briefly confirm whether `solution.py` was written and summarize the approach."
@@ -319,7 +319,7 @@ def _run_exec_backend(
     model: str,
     timeout: int,
 ) -> tuple[str, str]:
-    return run_student_exec(
+    return run_target_exec(
         work_dir=work_dir,
         prompt=prompt,
         model=model,
@@ -416,7 +416,7 @@ def run_single(
 
     Returns ``{"code": str, "raw": str, "n_turns": 1}``.
     """
-    if is_student_exec_backend():
+    if is_target_exec_backend():
         deadline = time.time() + task_timeout
         deployment = _get_deployment()
         work_dir, skill_md, task_md, prompt = _prepare_codex_workspace(
@@ -449,12 +449,12 @@ def run_single(
             "raw": raw or final_message,
             "n_turns": 1,
             "conversation": [{"role": "assistant", "content": final_message or raw}],
-            "student_system_prompt": skill_md,
-            "student_user_prompt": f"{prompt}\n\n## Task File\n\n{task_md}",
+            "target_system_prompt": skill_md,
+            "target_user_prompt": f"{prompt}\n\n## Task File\n\n{task_md}",
         }
 
     deadline = time.time() + task_timeout
-    client = get_student_client()
+    client = get_target_client()
     deployment = _get_deployment()
     system = _build_system(skill_content)
     user = _build_user(
@@ -483,8 +483,8 @@ def run_single(
         "raw": raw,
         "n_turns": 1,
         "conversation": [{"role": "assistant", "content": raw}],
-        "student_system_prompt": system,
-        "student_user_prompt": user,
+        "target_system_prompt": system,
+        "target_user_prompt": user,
     }
 
 
@@ -520,7 +520,7 @@ def run_multi(
 
     Returns ``{"code": str, "raw": str, "n_turns": int, "conversation": [...]}``.
     """
-    if is_student_exec_backend():
+    if is_target_exec_backend():
         deadline = time.time() + task_timeout
         deployment = _get_deployment()
         work_dir, skill_md, task_md, initial_prompt = _prepare_codex_workspace(
@@ -613,12 +613,12 @@ def run_multi(
             "raw": raw or final_message,
             "n_turns": len([m for m in conversation if m["role"] == "assistant"]),
             "conversation": conversation,
-            "student_system_prompt": skill_md,
-            "student_user_prompt": f"{initial_prompt}\n\n## Task File\n\n{task_md}",
+            "target_system_prompt": skill_md,
+            "target_user_prompt": f"{initial_prompt}\n\n## Task File\n\n{task_md}",
         }
 
     deadline = time.time() + task_timeout
-    client = get_student_client()
+    client = get_target_client()
     deployment = _get_deployment()
     system = _build_system(skill_content)
     user = _build_user(
@@ -699,6 +699,6 @@ def run_multi(
         "raw": raw,
         "n_turns": turn + 1,
         "conversation": conversation,
-        "student_system_prompt": system,
-        "student_user_prompt": user,
+        "target_system_prompt": system,
+        "target_user_prompt": user,
     }

@@ -31,7 +31,6 @@ import os
 import random
 
 from skillopt.datasets.base import BaseDataLoader, BatchSpec
-from skillopt.model.codex_harness import extract_codex_trace_prefix, format_codex_trace_steps, parse_codex_raw
 from skillopt.prompts import load_prompt
 
 
@@ -60,24 +59,8 @@ class EnvAdapter(ABC):
         """Return whether this adapter requires Ray runtime initialization."""
         return False
 
-    def deep_reflect(
-        self,
-        results: list[dict],
-        skill_content: str,
-        out_dir: str,
-        **kwargs,
-    ) -> list[dict | None]:
-        """Optional deeper diagnostic reflection pass.
-
-        Default behavior is a no-op. Dataset-backed adapters may override this
-        to re-query the student on a small representative subset of the current
-        batch using minimally-perturbed diagnostic prompts that expose
-        intermediate reasoning state.
-        """
-        return []
-
     def build_reference_text(self, item: dict) -> str:
-        """Return hidden reference material for deep reflection, if any."""
+        """Return hidden reference material for reflection, if any."""
         return str(item.get("reference_text") or "").strip()
 
     def get_reference_metadata(self, item: dict) -> dict:
@@ -89,65 +72,6 @@ class EnvAdapter(ABC):
             "fields": ["reference_text"],
             "preview": reference_text[:400],
         }
-
-    def get_codex_deep_probe_prompt(self) -> str | None:
-        env_name = getattr(self, "_cfg", {}).get("env_name")
-        return load_prompt("deep_probe_codex", env=env_name)
-
-    def attach_codex_probe_context(
-        self,
-        results: list[dict],
-        prediction_dir: str,
-    ) -> list[dict]:
-        """Attach compact Codex step metadata for codex-aware deep reflection."""
-        enriched: list[dict] = []
-        for row in results:
-            merged = dict(row)
-            tid = str(row.get("id"))
-            raw_path = os.path.join(prediction_dir, tid, "codex_raw.txt")
-            if os.path.exists(raw_path):
-                with open(raw_path, encoding="utf-8") as f:
-                    raw = f.read()
-                parsed = parse_codex_raw(raw)
-                merged["codex_probe_trace_steps"] = format_codex_trace_steps(raw)
-                merged["codex_probe_step_count"] = len(parsed["steps"])
-            enriched.append(merged)
-        return enriched
-
-    def resolve_codex_probe_target(
-        self,
-        *,
-        selected_items: list[dict],
-        selected_examples: list[dict],
-        prediction_dir: str,
-        probe: dict,
-    ) -> tuple[list[dict], dict[str, str] | None, dict]:
-        """Resolve the teacher-selected codex probe target and raw trace prefix."""
-        target_id = str(probe.get("probe_target_id", "")).strip()
-        selected_id_set = {str(item["id"]) for item in selected_items}
-        if target_id not in selected_id_set:
-            target_id = str(selected_items[0]["id"])
-        target_item = next(item for item in selected_items if str(item["id"]) == target_id)
-        target_result = next(
-            (row for row in selected_examples if str(row.get("id")) == target_id),
-            None,
-        )
-        max_probe_step = int((target_result or {}).get("codex_probe_step_count", 0))
-        default_probe_step = max_probe_step - 1 if max_probe_step > 1 else max_probe_step
-        probe_after_step = int(probe.get("probe_after_step", default_probe_step))
-        if max_probe_step > 0:
-            probe_after_step = max(0, min(probe_after_step, max_probe_step))
-        else:
-            probe_after_step = 0
-        raw_path = os.path.join(prediction_dir, target_id, "codex_raw.txt")
-        trace_prefix = ""
-        if os.path.exists(raw_path):
-            with open(raw_path, encoding="utf-8") as f:
-                trace_prefix = extract_codex_trace_prefix(f.read(), after_step=probe_after_step)
-        updated_probe = dict(probe)
-        updated_probe["probe_target_id"] = target_id
-        updated_probe["probe_after_step"] = probe_after_step
-        return [target_item], {target_id: trace_prefix}, updated_probe
 
     def attach_reference_context(
         self,
@@ -383,14 +307,3 @@ class EnvAdapter(ABC):
             if prompt is not None:
                 return prompt
         return self._load_env_prompt("analyst_success")
-
-    def get_deep_probe_prompt(self) -> str | None:
-        return self._load_env_prompt("deep_probe")
-
-    def get_meta_reflect_prompt(self) -> str | None:
-        update_mode = getattr(self, "_cfg", {}).get("skill_update_mode", "patch")
-        if str(update_mode).strip().lower() == "rewrite_from_suggestions":
-            prompt = self._load_env_prompt("meta_reflect_rewrite")
-            if prompt is not None:
-                return prompt
-        return self._load_env_prompt("meta_reflect")

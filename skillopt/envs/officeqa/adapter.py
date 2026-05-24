@@ -4,7 +4,6 @@ import os
 
 from skillopt.datasets.base import BatchSpec
 from skillopt.envs.base import EnvAdapter
-from skillopt.envs.deep_reflect import run_no_reference_deep_reflect
 from skillopt.envs.officeqa.dataloader import OfficeQADataLoader
 from skillopt.envs.officeqa.rollout import run_batch
 from skillopt.gradient.reflect import run_minibatch_reflect
@@ -37,11 +36,7 @@ class OfficeQAAdapter(EnvAdapter):
         search_timeout_seconds: int = 20,
         use_local_tools: bool = True,
         data_dirs: list[str] | str | None = None,
-        docs_dirs: list[str] | str | None = None,
-        use_deep_reflect: bool = False,
-        deep_reflect_failures: int = 4,
-        deep_reflect_successes: int = 2,
-    ) -> None:
+        docs_dirs: list[str] | str | None = None,    ) -> None:
         self.workers = workers
         self.analyst_workers = analyst_workers
         self.failure_only = failure_only
@@ -58,9 +53,6 @@ class OfficeQAAdapter(EnvAdapter):
         self.search_timeout_seconds = int(search_timeout_seconds)
         self.use_local_tools = bool(use_local_tools)
         self.data_dirs = data_dirs if data_dirs is not None else docs_dirs
-        self.use_deep_reflect = use_deep_reflect
-        self.deep_reflect_failures = deep_reflect_failures
-        self.deep_reflect_successes = deep_reflect_successes
         self.dataloader = OfficeQADataLoader(
             split_dir=split_dir,
             data_path=data_path,
@@ -133,37 +125,6 @@ class OfficeQAAdapter(EnvAdapter):
             update_mode=getattr(self, "_cfg", {}).get("skill_update_mode", "patch"),
         )
 
-    def deep_reflect(
-        self,
-        results: list[dict],
-        skill_content: str,
-        out_dir: str,
-        **kwargs,
-    ) -> list[dict | None]:
-        return run_no_reference_deep_reflect(
-            self,
-            results,
-            skill_content,
-            out_dir,
-            env_manager=kwargs.get("env_manager"),
-            prediction_dir=kwargs.get("prediction_dir"),
-            random_seed=kwargs.get("random_seed"),
-            step_buffer_context=kwargs.get("step_buffer_context", ""),
-            output_requirements=[
-                "- There is no hidden reference block. Use only the question, candidate files, tool trace, student output, and evaluation result to infer what intermediate state is worth probing.",
-                "- The instruction must explicitly request a short <analysis>...</analysis> block before the final <answer>...</answer>.",
-                "- The readout should focus on selected document/file, evidence span or table, extracted value, units, and any date or fiscal-period normalization.",
-                "- Do not ask for exhaustive copying of source text or a full chain-of-thought.",
-                "- The instruction text should be ready to append directly to the student's prompt.",
-            ],
-            metadata_builder=lambda item: {
-                "id": str(item.get("id")),
-                "task_type": str(item.get("task_type") or "officeqa"),
-                "question_preview": str(item.get("question") or "")[:200],
-                "source_files": item.get("source_files", []),
-                "source_docs": item.get("source_docs", []),
-            },
-        )
 
     def get_task_types(self) -> list[str]:
         seen: list[str] = []

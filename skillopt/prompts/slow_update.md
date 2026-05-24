@@ -41,16 +41,16 @@ all subsequent step-level optimization — only you can overwrite it at the next
 epoch boundary.
 
 Your guidance must:
-- Be written as **direct, actionable instructions** to the student model
+- Be written as **direct, actionable instructions** to the target model
   (the AI agent that will read and follow the skill).
-- Focus on helping the student get problems RIGHT — not on analysis or
+- Focus on helping the target get problems RIGHT — not on analysis or
   explanation of what went wrong.
 - Prioritize: (1) preventing regressions, (2) fixing persistent failures,
   (3) reinforcing successful patterns.
 - Be concise but comprehensive — you have no length limit, but every sentence
   should earn its place.
 - NOT duplicate content already in the main skill body — complement it.
-- Address the student directly (e.g., "When you encounter X, always do Y"
+- Address the target directly (e.g., "When you encounter X, always do Y"
   rather than "The agent should...").
 
 Respond ONLY with a valid JSON object (no markdown fences, no extra text):

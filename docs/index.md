@@ -26,7 +26,7 @@ hide:
 <div class="pipeline-stage" id="stage-rollout">
 <div class="stage-icon">🎯</div>
 <div class="stage-label">Rollout</div>
-<div class="stage-desc">Student executes tasks</div>
+<div class="stage-desc">Target executes tasks</div>
 </div>
 
 <div class="pipeline-arrow"><div class="flow-line"></div></div>
@@ -34,7 +34,7 @@ hide:
 <div class="pipeline-stage" id="stage-reflect">
 <div class="stage-icon">🔍</div>
 <div class="stage-label">Reflect</div>
-<div class="stage-desc">Teacher analyzes trajectories</div>
+<div class="stage-desc">Optimizer analyzes trajectories</div>
 </div>
 
 <div class="pipeline-arrow"><div class="flow-line"></div></div>
@@ -88,8 +88,8 @@ SkillOpt brings the familiar deep-learning training paradigm to agentic prompt o
 | Deep Learning | SkillOpt | 
 |---|---|
 | Model weights | Skill document (Markdown) |
-| Forward pass | Rollout (student executes tasks) |
-| Loss / gradient | Reflect (teacher produces edit patches) |
+| Forward pass | Rollout (target executes tasks) |
+| Loss / gradient | Reflect (optimizer produces edit patches) |
 | Gradient clipping | Edit selection (`learning_rate` = max edits) |
 | SGD step | Patch application to skill |
 | Validation set | Gated evaluation on selection split |

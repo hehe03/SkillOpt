@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ReflACT eval-only: run a single skill on a dataset without training.
+"""SkillOpt eval-only: run a single skill on a dataset without training.
 
 Usage
 -----
@@ -29,10 +29,10 @@ from skillopt.model import (
     configure_claude_code_exec,
     configure_codex_exec,
     set_reasoning_effort,
-    set_student_backend,
-    set_student_deployment,
-    set_teacher_backend,
-    set_teacher_deployment,
+    set_target_backend,
+    set_target_deployment,
+    set_optimizer_backend,
+    set_optimizer_deployment,
 )
 from skillopt.model.common import default_model_for_backend, normalize_backend_name
 
@@ -126,7 +126,7 @@ _BOOL = lambda x: str(x).lower() in ("true", "1", "yes")  # noqa: E731
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ReflACT eval-only")
+    p = argparse.ArgumentParser(description="SkillOpt eval-only")
     p.add_argument("--config", type=str, required=True)
     p.add_argument("--skill", type=str, required=True,
                    help="Path to skill .md file to evaluate")
@@ -138,10 +138,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--env", type=str)
     p.add_argument("--backend", type=str,
                    choices=["azure_openai", "codex", "codex_exec", "claude", "claude_chat", "claude_code_exec"])
-    p.add_argument("--teacher_model", type=str)
-    p.add_argument("--student_model", type=str)
-    p.add_argument("--teacher_backend", type=str)
-    p.add_argument("--student_backend", type=str)
+    p.add_argument("--optimizer_model", type=str)
+    p.add_argument("--target_model", type=str)
+    p.add_argument("--optimizer_backend", type=str)
+    p.add_argument("--target_backend", type=str)
     p.add_argument("--reasoning_effort", type=str,
                    choices=["", "low", "medium", "high", "xhigh", "max"])
     p.add_argument("--azure_endpoint", type=str)
@@ -153,18 +153,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--azure_openai_auth_mode", type=str)
     p.add_argument("--azure_openai_ad_scope", type=str)
     p.add_argument("--azure_openai_managed_identity_client_id", type=str)
-    p.add_argument("--teacher_azure_openai_endpoint", type=str)
-    p.add_argument("--teacher_azure_openai_api_version", type=str)
-    p.add_argument("--teacher_azure_openai_api_key", type=str)
-    p.add_argument("--teacher_azure_openai_auth_mode", type=str)
-    p.add_argument("--teacher_azure_openai_ad_scope", type=str)
-    p.add_argument("--teacher_azure_openai_managed_identity_client_id", type=str)
-    p.add_argument("--student_azure_openai_endpoint", type=str)
-    p.add_argument("--student_azure_openai_api_version", type=str)
-    p.add_argument("--student_azure_openai_api_key", type=str)
-    p.add_argument("--student_azure_openai_auth_mode", type=str)
-    p.add_argument("--student_azure_openai_ad_scope", type=str)
-    p.add_argument("--student_azure_openai_managed_identity_client_id", type=str)
+    p.add_argument("--optimizer_azure_openai_endpoint", type=str)
+    p.add_argument("--optimizer_azure_openai_api_version", type=str)
+    p.add_argument("--optimizer_azure_openai_api_key", type=str)
+    p.add_argument("--optimizer_azure_openai_auth_mode", type=str)
+    p.add_argument("--optimizer_azure_openai_ad_scope", type=str)
+    p.add_argument("--optimizer_azure_openai_managed_identity_client_id", type=str)
+    p.add_argument("--target_azure_openai_endpoint", type=str)
+    p.add_argument("--target_azure_openai_api_version", type=str)
+    p.add_argument("--target_azure_openai_api_key", type=str)
+    p.add_argument("--target_azure_openai_auth_mode", type=str)
+    p.add_argument("--target_azure_openai_ad_scope", type=str)
+    p.add_argument("--target_azure_openai_managed_identity_client_id", type=str)
     p.add_argument("--codex_exec_path", type=str)
     p.add_argument("--codex_exec_sandbox", type=str)
     p.add_argument("--codex_exec_profile", type=str)
@@ -214,10 +214,10 @@ def main() -> None:
             from skillopt.config import apply_overrides
             _MAP = {
                 "backend": "model.backend",
-                "teacher_model": "model.teacher",
-                "student_model": "model.student",
-                "teacher_backend": "model.teacher_backend",
-                "student_backend": "model.student_backend",
+                "optimizer_model": "model.optimizer",
+                "target_model": "model.target",
+                "optimizer_backend": "model.optimizer_backend",
+                "target_backend": "model.target_backend",
                 "reasoning_effort": "model.reasoning_effort",
                 "azure_endpoint": "model.azure_endpoint",
                 "azure_api_version": "model.azure_api_version",
@@ -228,18 +228,18 @@ def main() -> None:
                 "azure_openai_auth_mode": "model.azure_openai_auth_mode",
                 "azure_openai_ad_scope": "model.azure_openai_ad_scope",
                 "azure_openai_managed_identity_client_id": "model.azure_openai_managed_identity_client_id",
-                "teacher_azure_openai_endpoint": "model.teacher_azure_openai_endpoint",
-                "teacher_azure_openai_api_version": "model.teacher_azure_openai_api_version",
-                "teacher_azure_openai_api_key": "model.teacher_azure_openai_api_key",
-                "teacher_azure_openai_auth_mode": "model.teacher_azure_openai_auth_mode",
-                "teacher_azure_openai_ad_scope": "model.teacher_azure_openai_ad_scope",
-                "teacher_azure_openai_managed_identity_client_id": "model.teacher_azure_openai_managed_identity_client_id",
-                "student_azure_openai_endpoint": "model.student_azure_openai_endpoint",
-                "student_azure_openai_api_version": "model.student_azure_openai_api_version",
-                "student_azure_openai_api_key": "model.student_azure_openai_api_key",
-                "student_azure_openai_auth_mode": "model.student_azure_openai_auth_mode",
-                "student_azure_openai_ad_scope": "model.student_azure_openai_ad_scope",
-                "student_azure_openai_managed_identity_client_id": "model.student_azure_openai_managed_identity_client_id",
+                "optimizer_azure_openai_endpoint": "model.optimizer_azure_openai_endpoint",
+                "optimizer_azure_openai_api_version": "model.optimizer_azure_openai_api_version",
+                "optimizer_azure_openai_api_key": "model.optimizer_azure_openai_api_key",
+                "optimizer_azure_openai_auth_mode": "model.optimizer_azure_openai_auth_mode",
+                "optimizer_azure_openai_ad_scope": "model.optimizer_azure_openai_ad_scope",
+                "optimizer_azure_openai_managed_identity_client_id": "model.optimizer_azure_openai_managed_identity_client_id",
+                "target_azure_openai_endpoint": "model.target_azure_openai_endpoint",
+                "target_azure_openai_api_version": "model.target_azure_openai_api_version",
+                "target_azure_openai_api_key": "model.target_azure_openai_api_key",
+                "target_azure_openai_auth_mode": "model.target_azure_openai_auth_mode",
+                "target_azure_openai_ad_scope": "model.target_azure_openai_ad_scope",
+                "target_azure_openai_managed_identity_client_id": "model.target_azure_openai_managed_identity_client_id",
                 "codex_exec_path": "model.codex_exec_path",
                 "codex_exec_sandbox": "model.codex_exec_sandbox",
                 "codex_exec_profile": "model.codex_exec_profile",
@@ -288,7 +288,7 @@ def main() -> None:
                 explicit_backend = str(option).split("=", 1)[1].strip()
                 break
 
-    backend = normalize_backend_name(cfg.get("model_backend") or cfg.get("student_backend") or "azure_openai")
+    backend = normalize_backend_name(cfg.get("model_backend") or cfg.get("target_backend") or "azure_openai")
 
     def _has_model_override(dotted_key: str, legacy_key: str) -> bool:
         if getattr(args, legacy_key, None) is not None:
@@ -303,43 +303,43 @@ def main() -> None:
         backend = normalize_backend_name(explicit_backend)
         cfg["model_backend"] = backend
         if backend in {"claude", "claude_chat"}:
-            cfg.setdefault("teacher_backend", "claude_chat")
-            cfg.setdefault("student_backend", "claude_chat")
+            cfg.setdefault("optimizer_backend", "claude_chat")
+            cfg.setdefault("target_backend", "claude_chat")
         elif backend in {"codex", "codex_exec"}:
-            cfg.setdefault("teacher_backend", "openai_chat")
-            cfg.setdefault("student_backend", "codex_exec")
+            cfg.setdefault("optimizer_backend", "openai_chat")
+            cfg.setdefault("target_backend", "codex_exec")
         elif backend == "claude_code_exec":
-            cfg.setdefault("teacher_backend", "openai_chat")
-            cfg.setdefault("student_backend", "claude_code_exec")
+            cfg.setdefault("optimizer_backend", "openai_chat")
+            cfg.setdefault("target_backend", "claude_code_exec")
         else:
-            cfg.setdefault("teacher_backend", "openai_chat")
-            cfg.setdefault("student_backend", "openai_chat")
+            cfg.setdefault("optimizer_backend", "openai_chat")
+            cfg.setdefault("target_backend", "openai_chat")
     else:
-        cfg.setdefault("teacher_backend", "openai_chat")
-        cfg.setdefault("student_backend", "openai_chat")
+        cfg.setdefault("optimizer_backend", "openai_chat")
+        cfg.setdefault("target_backend", "openai_chat")
 
-    if cfg.get("teacher_backend") == "claude_chat":
+    if cfg.get("optimizer_backend") == "claude_chat":
         if (
-            str(cfg.get("teacher_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.teacher", "teacher_model")
+            str(cfg.get("optimizer_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.optimizer", "optimizer_model")
         ):
-            cfg["teacher_model"] = default_model_for_backend("claude_chat")
-    if cfg.get("student_backend") == "claude_chat":
+            cfg["optimizer_model"] = default_model_for_backend("claude_chat")
+    if cfg.get("target_backend") == "claude_chat":
         if (
-            str(cfg.get("student_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.student", "student_model")
+            str(cfg.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
         ):
-            cfg["student_model"] = default_model_for_backend("claude_chat")
-    if cfg.get("student_backend") == "claude_code_exec":
+            cfg["target_model"] = default_model_for_backend("claude_chat")
+    if cfg.get("target_backend") == "claude_code_exec":
         if (
-            str(cfg.get("student_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
-            and not _has_model_override("model.student", "student_model")
+            str(cfg.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
         ):
-            cfg["student_model"] = default_model_for_backend("claude_chat")
+            cfg["target_model"] = default_model_for_backend("claude_chat")
 
     if not cfg.get("out_root"):
         env = cfg.get("env", "unknown")
-        model = cfg.get("student_model", "unknown").replace("/", "-")
+        model = cfg.get("target_model", "unknown").replace("/", "-")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         cfg["out_root"] = os.path.join("outputs", f"eval_{env}_{model}_{ts}")
 
@@ -362,27 +362,27 @@ def main() -> None:
         auth_mode=cfg.get("azure_openai_auth_mode") or None,
         ad_scope=cfg.get("azure_openai_ad_scope") or None,
         managed_identity_client_id=cfg.get("azure_openai_managed_identity_client_id") or None,
-        teacher_endpoint=cfg.get("teacher_azure_openai_endpoint") or None,
-        teacher_api_version=cfg.get("teacher_azure_openai_api_version") or None,
-        teacher_api_key=cfg.get("teacher_azure_openai_api_key") or None,
-        teacher_auth_mode=cfg.get("teacher_azure_openai_auth_mode") or None,
-        teacher_ad_scope=cfg.get("teacher_azure_openai_ad_scope") or None,
-        teacher_managed_identity_client_id=(
-            cfg.get("teacher_azure_openai_managed_identity_client_id") or None
+        optimizer_endpoint=cfg.get("optimizer_azure_openai_endpoint") or None,
+        optimizer_api_version=cfg.get("optimizer_azure_openai_api_version") or None,
+        optimizer_api_key=cfg.get("optimizer_azure_openai_api_key") or None,
+        optimizer_auth_mode=cfg.get("optimizer_azure_openai_auth_mode") or None,
+        optimizer_ad_scope=cfg.get("optimizer_azure_openai_ad_scope") or None,
+        optimizer_managed_identity_client_id=(
+            cfg.get("optimizer_azure_openai_managed_identity_client_id") or None
         ),
-        student_endpoint=cfg.get("student_azure_openai_endpoint") or None,
-        student_api_version=cfg.get("student_azure_openai_api_version") or None,
-        student_api_key=cfg.get("student_azure_openai_api_key") or None,
-        student_auth_mode=cfg.get("student_azure_openai_auth_mode") or None,
-        student_ad_scope=cfg.get("student_azure_openai_ad_scope") or None,
-        student_managed_identity_client_id=(
-            cfg.get("student_azure_openai_managed_identity_client_id") or None
+        target_endpoint=cfg.get("target_azure_openai_endpoint") or None,
+        target_api_version=cfg.get("target_azure_openai_api_version") or None,
+        target_api_key=cfg.get("target_azure_openai_api_key") or None,
+        target_auth_mode=cfg.get("target_azure_openai_auth_mode") or None,
+        target_ad_scope=cfg.get("target_azure_openai_ad_scope") or None,
+        target_managed_identity_client_id=(
+            cfg.get("target_azure_openai_managed_identity_client_id") or None
         ),
     )
-    set_teacher_backend(cfg.get("teacher_backend", "openai_chat"))
-    set_student_backend(cfg.get("student_backend", "openai_chat"))
-    set_teacher_deployment(cfg.get("teacher_model", default_model_for_backend(backend)))
-    set_student_deployment(cfg.get("student_model", default_model_for_backend(backend)))
+    set_optimizer_backend(cfg.get("optimizer_backend", "openai_chat"))
+    set_target_backend(cfg.get("target_backend", "openai_chat"))
+    set_optimizer_deployment(cfg.get("optimizer_model", default_model_for_backend(backend)))
+    set_target_deployment(cfg.get("target_model", default_model_for_backend(backend)))
     configure_codex_exec(
         path=cfg.get("codex_exec_path", "codex"),
         sandbox=cfg.get("codex_exec_sandbox", "workspace-write"),

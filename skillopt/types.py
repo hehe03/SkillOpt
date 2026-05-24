@@ -118,8 +118,8 @@ class RolloutResult:
     predicted_answer: str = ""
     question: str = ""
     reference_text: str = ""
-    student_system_prompt: str = ""
-    student_user_prompt: str = ""
+    target_system_prompt: str = ""
+    target_user_prompt: str = ""
     spreadsheet_preview: str = ""
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -151,8 +151,8 @@ class RolloutResult:
             predicted_answer=str(d.get("predicted_answer", "")),
             question=str(d.get("question", "")),
             reference_text=str(d.get("reference_text", "")),
-            student_system_prompt=str(d.get("student_system_prompt", "")),
-            student_user_prompt=str(d.get("student_user_prompt", "")),
+            target_system_prompt=str(d.get("target_system_prompt", "")),
+            target_user_prompt=str(d.get("target_user_prompt", "")),
             spreadsheet_preview=str(d.get("spreadsheet_preview", "")),
             extras=extras,
         )
@@ -166,7 +166,7 @@ class RolloutResult:
         for attr in (
             "n_turns", "fail_reason", "task_type", "task_description",
             "predicted_answer", "question", "reference_text",
-            "student_system_prompt", "student_user_prompt",
+            "target_system_prompt", "target_user_prompt",
             "spreadsheet_preview",
         ):
             val = getattr(self, attr)
@@ -241,57 +241,6 @@ class RawPatch:
         }
         if self.failure_summary:
             d["failure_summary"] = [fs.to_dict() for fs in self.failure_summary]
-        return d
-
-
-# ── Epoch-level: META_REFLECT ────────────────────────────────────────────
-
-@dataclass
-class MetaReflectResult:
-    """Output of the epoch-level meta-reflect stage (momentum)."""
-
-    meta_summary: str
-    patch: Patch
-    action: str = ""
-    gate_score: float | None = None
-    time_s: float | None = None
-    candidate_hash: str = ""
-    update_origin: str = ""
-    update_target: str = ""
-
-    @classmethod
-    def from_dict(cls, d: dict | None) -> MetaReflectResult | None:
-        if d is None:
-            return None
-        patch_raw = d.get("patch", {})
-        return cls(
-            meta_summary=d.get("meta_summary", ""),
-            patch=Patch.from_dict(patch_raw) if isinstance(patch_raw, dict) else Patch(),
-            action=d.get("action", ""),
-            gate_score=d.get("gate_score"),
-            time_s=d.get("time_s"),
-            candidate_hash=d.get("candidate_hash", ""),
-            update_origin=d.get("update_origin", ""),
-            update_target=d.get("update_target", ""),
-        )
-
-    def to_dict(self) -> dict:
-        d: dict[str, Any] = {
-            "meta_summary": self.meta_summary,
-            "patch": self.patch.to_dict(),
-        }
-        if self.action:
-            d["action"] = self.action
-        if self.gate_score is not None:
-            d["gate_score"] = self.gate_score
-        if self.time_s is not None:
-            d["time_s"] = self.time_s
-        if self.candidate_hash:
-            d["candidate_hash"] = self.candidate_hash
-        if self.update_origin:
-            d["update_origin"] = self.update_origin
-        if self.update_target:
-            d["update_target"] = self.update_target
         return d
 
 

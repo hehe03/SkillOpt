@@ -15,7 +15,7 @@ import time
 import concurrent.futures
 import numpy as np
 
-from skillopt.model import chat_student
+from skillopt.model import chat_target
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -210,7 +210,7 @@ def run_alfworld_batch(
 
         def call_api(idx):
             try:
-                response, _ = chat_student(
+                response, _ = chat_target(
                     system="You are an expert agent operating in the ALFRED Embodied Environment.",
                     user=prompts[idx],
                     max_completion_tokens=max_completion_tokens,

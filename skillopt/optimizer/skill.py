@@ -28,9 +28,19 @@ def _is_in_slow_update_region(skill: str, target: str) -> bool:
     return start_idx <= target_idx < region_end
 
 
+def _strip_slow_update_markers(text: str) -> str:
+    """Remove any SLOW_UPDATE markers from edit content to prevent duplication."""
+    return (
+        text.replace(SLOW_UPDATE_START, "")
+            .replace(SLOW_UPDATE_END, "")
+    )
+
+
 def _edit_fields(edit: EditType | dict) -> tuple[str, str, str]:
     op = edit.op if hasattr(edit, "op") else edit.get("op", "")
-    content = (edit.content if hasattr(edit, "content") else edit.get("content", "")).strip()
+    content = _strip_slow_update_markers(
+        (edit.content if hasattr(edit, "content") else edit.get("content", "")).strip()
+    )
     target = edit.target if hasattr(edit, "target") else edit.get("target", "")
     return op, content, target
 

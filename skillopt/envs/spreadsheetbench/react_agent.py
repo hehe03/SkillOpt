@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 
-from skillopt.model import chat_student_messages
+from skillopt.model import chat_target_messages
 from skillopt.prompts import load_prompt
 
 # ── Tool schemas ─────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ def _react_loop(
     n_turns = 0
 
     for _ in range(max_turns):
-        message, _ = chat_student_messages(
+        message, _ = chat_target_messages(
             messages=messages,
             tools=[BASH_TOOL_CHAT, WRITE_FILE_TOOL_CHAT],
             tool_choice="auto",
@@ -390,6 +390,6 @@ def run_react(
         diagnostic_trace_context=diagnostic_trace_context,
     )
     result = _react_loop(system, user, work_dir, max_turns, max_output_tokens)
-    result["student_system_prompt"] = system
-    result["student_user_prompt"] = user
+    result["target_system_prompt"] = system
+    result["target_user_prompt"] = user
     return result

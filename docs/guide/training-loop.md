@@ -10,8 +10,8 @@ SkillOpt's core insight: **optimizing natural-language skill documents follows t
 │                                                         │
 │  for epoch in epochs:                                   │
 │    for step in steps:                                   │
-│      1. Rollout   — Student executes tasks              │
-│      2. Reflect   — Teacher analyzes trajectories       │
+│      1. Rollout   — Target executes tasks              │
+│      2. Reflect   — Optimizer analyzes trajectories       │
 │      3. Aggregate — Hierarchical merge of patches       │
 │      4. Select    — Rank & clip edits (learning rate)   │
 │      5. Update    — Apply patches to skill doc          │
@@ -27,7 +27,7 @@ SkillOpt's core insight: **optimizing natural-language skill documents follows t
 
 ### 1. Rollout (Forward Pass)
 
-The **student** model executes tasks using the current skill document as its prompt. Each task produces a trajectory and a score.
+The **target** model executes tasks using the current skill document as its prompt. Each task produces a trajectory and a score.
 
 ```python
 # Analogy: forward pass through the network
@@ -37,7 +37,7 @@ scores = evaluate(predictions, ground_truth)
 
 ### 2. Reflect (Backward Pass)
 
-The **teacher** model analyzes failed trajectories and produces **edit patches** — structured suggestions for improving the skill document.
+The **optimizer** model analyzes failed trajectories and produces **edit patches** — structured suggestions for improving the skill document.
 
 Two modes:
 
@@ -84,7 +84,7 @@ At the end of each epoch (starting from epoch 2), the system performs a **longit
 
 ### Meta Skill
 
-A **meta-skill memory** accumulates high-level strategy notes across the entire training run. At the end of each epoch, the teacher reflects on what changed between epochs and produces a compact memory that is provided as additional context during future reflection steps.
+A **meta-skill memory** accumulates high-level strategy notes across the entire training run. At the end of each epoch, the optimizer reflects on what changed between epochs and produces a compact memory that is provided as additional context during future reflection steps.
 
 ## Next Steps
 

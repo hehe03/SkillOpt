@@ -14,8 +14,8 @@ try:
     from skillopt.envs.sealqa.tool_runtime import custom_search
 except ImportError:
     custom_search = None  # type: ignore[assignment]
-from skillopt.model import chat_student_messages, get_student_backend, is_student_exec_backend
-from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_student_exec
+from skillopt.model import chat_target_messages, get_target_backend, is_target_exec_backend
+from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_target_exec
 from skillopt.prompts import load_prompt
 _TOOL_SCHEMAS = [
     {
@@ -299,12 +299,12 @@ def _run_codex_once(
         link_dirs=_docs_link_targets(docs_roots),
     )
     prompt = (
-        "Use the `skillopt-student` skill available in this workspace.\n"
+        "Use the `skillopt-target` skill available in this workspace.\n"
         "Read `task.md`, inspect or search the full OfficeQA corpus under `docs/`, and answer the question.\n"
         "Treat candidate files in `task.md` as hints, not an access limit.\n"
         "Return the final answer inside <answer>...</answer>."
     )
-    final_message, raw = run_student_exec(
+    final_message, raw = run_target_exec(
         work_dir=work_dir,
         prompt=prompt,
         model=model,
@@ -356,8 +356,8 @@ def _run_custom_search_process(
         raise ValueError("custom_search mode requires a non-empty search_api_url")
     if not os.environ.get(search_auth_env, "").strip():
         raise ValueError(f"custom_search mode requires auth token env var {search_auth_env}")
-    if get_student_backend() not in {"openai_chat", "qwen_chat"}:
-        raise ValueError("custom_search mode is only supported with student_backend='openai_chat' or 'qwen_chat'")
+    if get_target_backend() not in {"openai_chat", "qwen_chat"}:
+        raise ValueError("custom_search mode is only supported with target_backend='openai_chat' or 'qwen_chat'")
     system = _build_system(
         skill_content,
         search_mode=_CUSTOM_SEARCH_MODE,
@@ -385,7 +385,7 @@ def _run_custom_search_process(
     fail_reason = ""
     last_response_metadata: dict = {}
     for turn in range(1, max_tool_turns + 1):
-        message, _ = chat_student_messages(
+        message, _ = chat_target_messages(
             messages=messages,
             max_completion_tokens=max_completion_tokens,
             retries=5,
@@ -439,8 +439,8 @@ def _run_azure_search_process(
     diagnostic_mode: bool,
     diagnostic_instruction: str,
 ) -> tuple[str, str, str, str, list[dict], str, dict]:
-    if get_student_backend() != "openai_chat":
-        raise ValueError("azure_search mode is only supported with student_backend='openai_chat'")
+    if get_target_backend() != "openai_chat":
+        raise ValueError("azure_search mode is only supported with target_backend='openai_chat'")
     system = _build_system(skill_content, search_mode=_AZURE_SEARCH_MODE)
     user = _build_user(
         item,
@@ -453,7 +453,7 @@ def _run_azure_search_process(
         {"role": "user", "content": user},
     ]
     conversation: list[dict] = [{"role": "user", "content": user}]
-    message, _ = chat_student_messages(
+    message, _ = chat_target_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=5,
@@ -494,7 +494,7 @@ def _run_offline_no_tools_process(
         {"role": "user", "content": user},
     ]
     conversation: list[dict] = [{"role": "user", "content": user}]
-    message, _ = chat_student_messages(
+    message, _ = chat_target_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=5,
@@ -616,7 +616,7 @@ def process_one(
                 candidate_files=candidate_files,
                 oracle_context=oracle_context,
             )
-        elif is_student_exec_backend():
+        elif is_target_exec_backend():
             from skillopt.model import azure_openai as _llm
             response = ""
             system = ""
@@ -628,7 +628,7 @@ def process_one(
                     skill_content=skill_content,
                     candidate_files=candidate_files,
                     docs_roots=docs_roots,
-                    model=_llm.STUDENT_DEPLOYMENT,
+                    model=_llm.TARGET_DEPLOYMENT,
                     timeout=180,
                     diagnostic_mode=diagnostic_mode if turn == 1 else False,
                     diagnostic_instruction=diagnostic_instruction if turn == 1 else "",
@@ -650,7 +650,7 @@ def process_one(
                 {"role": "user", "content": user},
             ]
             for turn in range(1, max_tool_turns + 1):
-                message, _ = chat_student_messages(
+                message, _ = chat_target_messages(
                     messages=messages,
                     max_completion_tokens=768,
                     retries=5,
@@ -688,9 +688,9 @@ def process_one(
                     break
     except Exception as e:  # noqa: BLE001
         fail_reason = f"error: {e}"
-    with open(os.path.join(pred_dir, "student_system_prompt.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w", encoding="utf-8") as f:
         f.write(system)
-    with open(os.path.join(pred_dir, "student_user_prompt.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pred_dir, "target_user_prompt.txt"), "w", encoding="utf-8") as f:
         f.write(user)
     with open(os.path.join(pred_dir, "conversation.json"), "w", encoding="utf-8") as f:
         json.dump(conversation, f, ensure_ascii=False, indent=2)
@@ -714,8 +714,8 @@ def process_one(
         "agent_ok": not fail_reason,
         "n_turns": len(conversation),
         "last_finish_reason": last_response_metadata.get("finish_reason", ""),
-        "student_system_prompt": system,
-        "student_user_prompt": user,
+        "target_system_prompt": system,
+        "target_user_prompt": user,
     }
     return result
 def run_batch(

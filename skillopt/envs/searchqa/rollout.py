@@ -16,8 +16,8 @@ import time
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from skillopt.model import chat_student, get_student_backend, is_student_exec_backend
-from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_student_exec
+from skillopt.model import chat_target, get_target_backend, is_target_exec_backend
+from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_target_exec
 from skillopt.prompts import load_prompt
 from skillopt.envs.searchqa.evaluator import evaluate
 
@@ -123,11 +123,11 @@ def _run_codex_once(
         task_text=task_text,
     )
     prompt = (
-        "Use the `skillopt-student` skill available in this workspace.\n"
+        "Use the `skillopt-target` skill available in this workspace.\n"
         "Read `task.md` and answer the SearchQA question.\n"
         "Return the final answer inside <answer>...</answer>."
     )
-    final_message, raw = run_student_exec(
+    final_message, raw = run_target_exec(
         work_dir=work_dir,
         prompt=prompt,
         model=model,
@@ -192,7 +192,7 @@ def process_one(
         pred_dir = os.path.join(out_root, "predictions", item_id)
         os.makedirs(pred_dir, exist_ok=True)
 
-        if is_student_exec_backend():
+        if is_target_exec_backend():
             from skillopt.model import azure_openai as _llm
 
             conversation: list[dict] = []
@@ -205,7 +205,7 @@ def process_one(
                     skill_content=skill_content,
                     question=question,
                     context=context,
-                    model=_llm.STUDENT_DEPLOYMENT,
+                    model=_llm.TARGET_DEPLOYMENT,
                     timeout=exec_timeout,
                     diagnostic_mode=diagnostic_mode if turn == 0 else False,
                     diagnostic_instruction=diagnostic_instruction if turn == 0 else "",
@@ -220,9 +220,9 @@ def process_one(
             result["agent_ok"] = True
             result["n_turns"] = len(conversation)
 
-            with open(os.path.join(pred_dir, "student_system_prompt.txt"), "w") as f:
+            with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w") as f:
                 f.write(system)
-            with open(os.path.join(pred_dir, "student_user_prompt.txt"), "w") as f:
+            with open(os.path.join(pred_dir, "target_user_prompt.txt"), "w") as f:
                 f.write(user)
             with open(os.path.join(pred_dir, "conversation.json"), "w") as f:
                 json.dump(conversation, f, ensure_ascii=False, indent=2)
@@ -266,7 +266,7 @@ def process_one(
 
         for turn in range(max_turns):
             if turn == 0:
-                resp_text, _ = chat_student(
+                resp_text, _ = chat_target(
                     system=system, user=user,
                     max_completion_tokens=512,
                     retries=5, stage="rollout",
@@ -279,7 +279,7 @@ def process_one(
                     f"If correct, repeat it. If wrong, provide a corrected answer.\n"
                     f"Use <answer>...</answer> tags for your final answer."
                 )
-                resp_text, _ = chat_student(
+                resp_text, _ = chat_target(
                     system=system, user=refinement,
                     max_completion_tokens=512,
                     retries=5, stage="rollout",
@@ -297,9 +297,9 @@ def process_one(
         result["n_turns"] = len(conversation)
 
         # Save conversation
-        with open(os.path.join(pred_dir, "student_system_prompt.txt"), "w") as f:
+        with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w") as f:
             f.write(system)
-        with open(os.path.join(pred_dir, "student_user_prompt.txt"), "w") as f:
+        with open(os.path.join(pred_dir, "target_user_prompt.txt"), "w") as f:
             f.write(user)
         with open(os.path.join(pred_dir, "conversation.json"), "w") as f:
             json.dump(conversation, f, ensure_ascii=False, indent=2)

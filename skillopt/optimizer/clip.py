@@ -6,7 +6,7 @@ effective step size. Previously core/select.py.
 """
 from __future__ import annotations
 
-from skillopt.model import chat_teacher
+from skillopt.model import chat_optimizer
 from skillopt.optimizer.meta_skill import format_meta_skill_context
 from skillopt.optimizer.update_modes import (
     describe_item,
@@ -29,10 +29,10 @@ def rank_and_select(
     meta_skill_context: str = "",
     update_mode: str = "patch",
 ) -> dict:
-    """Use a teacher LLM to rank edits by importance, then keep top-L.
+    """Use a optimizer LLM to rank edits by importance, then keep top-L.
 
     If the edit pool is within budget, returns the patch unchanged.
-    Otherwise, calls the teacher to rank and select the most impactful edits.
+    Otherwise, calls the optimizer to rank and select the most impactful edits.
 
     Parameters
     ----------
@@ -54,7 +54,7 @@ def rank_and_select(
     if len(edits) <= max_edits:
         return patch
 
-    # Build the edit pool description for the teacher
+    # Build the edit pool description for the optimizer
     edits_desc = []
     for i, edit in enumerate(edits):
         edits_desc.append(f"[{i}] {describe_item(edit, update_mode, max_chars=500)}")
@@ -66,13 +66,13 @@ def rank_and_select(
         + f"\n\nSelect the {max_edits} most important {payload_label(update_mode)}. "
         f"Return their 0-based indices in priority order."
     )
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user = f"{teacher_ctx}\n\n{user}"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user = f"{optimizer_ctx}\n\n{user}"
     prompt_name = "ranking_rewrite" if is_rewrite_mode(update_mode) else "ranking"
 
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=load_prompt(prompt_name), user=user,
             max_completion_tokens=2048, retries=3, stage="ranking",
         )
@@ -94,7 +94,7 @@ def rank_and_select(
             if selected:
                 return {
                     "reasoning": patch.get("reasoning", "")
-                    + f" [teacher-ranked: selected {len(selected)}/{len(edits)} {payload_label(update_mode)}]",
+                    + f" [optimizer-ranked: selected {len(selected)}/{len(edits)} {payload_label(update_mode)}]",
                     payload_key(update_mode): selected,
                     "ranking_details": result,
                 }

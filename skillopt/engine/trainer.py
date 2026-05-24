@@ -26,7 +26,6 @@ from skillopt.datasets.base import BatchSpec
 from skillopt.envs.base import EnvAdapter
 from skillopt.evaluation.gate import evaluate_gate
 from skillopt.gradient.aggregate import merge_patches
-from skillopt.optimizer.meta_reflect import build_epoch_history, run_meta_reflect
 from skillopt.optimizer.meta_skill import run_meta_skill
 from skillopt.optimizer.clip import rank_and_select
 from skillopt.optimizer.lr_autonomous import decide_autonomous_learning_rate
@@ -56,10 +55,10 @@ from skillopt.model import (
     get_token_summary,
     reset_token_tracker,
     set_reasoning_effort,
-    set_student_backend,
-    set_student_deployment,
-    set_teacher_backend,
-    set_teacher_deployment,
+    set_target_backend,
+    set_target_deployment,
+    set_optimizer_backend,
+    set_optimizer_deployment,
 )
 from skillopt.utils import compute_score, skill_hash
 
@@ -132,7 +131,7 @@ def _normalise_lr_control_mode(mode: str | None) -> str:
         "scheduled": "fixed",
         "autonomous": "autonomous",
         "auto": "autonomous",
-        "teacher": "autonomous",
+        "optimizer": "autonomous",
         "none": "none",
         "off": "none",
         "no_lr": "none",
@@ -570,47 +569,47 @@ class ReflACTTrainer:
             auth_mode=cfg.get("azure_openai_auth_mode") or None,
             ad_scope=cfg.get("azure_openai_ad_scope") or None,
             managed_identity_client_id=cfg.get("azure_openai_managed_identity_client_id") or None,
-            teacher_endpoint=cfg.get("teacher_azure_openai_endpoint") or None,
-            teacher_api_version=cfg.get("teacher_azure_openai_api_version") or None,
-            teacher_api_key=cfg.get("teacher_azure_openai_api_key") or None,
-            teacher_auth_mode=cfg.get("teacher_azure_openai_auth_mode") or None,
-            teacher_ad_scope=cfg.get("teacher_azure_openai_ad_scope") or None,
-            teacher_managed_identity_client_id=(
-                cfg.get("teacher_azure_openai_managed_identity_client_id") or None
+            optimizer_endpoint=cfg.get("optimizer_azure_openai_endpoint") or None,
+            optimizer_api_version=cfg.get("optimizer_azure_openai_api_version") or None,
+            optimizer_api_key=cfg.get("optimizer_azure_openai_api_key") or None,
+            optimizer_auth_mode=cfg.get("optimizer_azure_openai_auth_mode") or None,
+            optimizer_ad_scope=cfg.get("optimizer_azure_openai_ad_scope") or None,
+            optimizer_managed_identity_client_id=(
+                cfg.get("optimizer_azure_openai_managed_identity_client_id") or None
             ),
-            student_endpoint=cfg.get("student_azure_openai_endpoint") or None,
-            student_api_version=cfg.get("student_azure_openai_api_version") or None,
-            student_api_key=cfg.get("student_azure_openai_api_key") or None,
-            student_auth_mode=cfg.get("student_azure_openai_auth_mode") or None,
-            student_ad_scope=cfg.get("student_azure_openai_ad_scope") or None,
-            student_managed_identity_client_id=(
-                cfg.get("student_azure_openai_managed_identity_client_id") or None
+            target_endpoint=cfg.get("target_azure_openai_endpoint") or None,
+            target_api_version=cfg.get("target_azure_openai_api_version") or None,
+            target_api_key=cfg.get("target_azure_openai_api_key") or None,
+            target_auth_mode=cfg.get("target_azure_openai_auth_mode") or None,
+            target_ad_scope=cfg.get("target_azure_openai_ad_scope") or None,
+            target_managed_identity_client_id=(
+                cfg.get("target_azure_openai_managed_identity_client_id") or None
             ),
         )
-        teacher_backend = cfg.get("teacher_backend")
-        student_backend = cfg.get("student_backend")
-        if not teacher_backend or not student_backend:
+        optimizer_backend = cfg.get("optimizer_backend")
+        target_backend = cfg.get("target_backend")
+        if not optimizer_backend or not target_backend:
             if backend in {"claude", "claude_chat"}:
-                teacher_backend = teacher_backend or "claude_chat"
-                student_backend = student_backend or "claude_chat"
+                optimizer_backend = optimizer_backend or "claude_chat"
+                target_backend = target_backend or "claude_chat"
             elif backend in {"codex", "codex_exec"}:
-                teacher_backend = teacher_backend or "openai_chat"
-                student_backend = student_backend or "codex_exec"
+                optimizer_backend = optimizer_backend or "openai_chat"
+                target_backend = target_backend or "codex_exec"
             elif backend == "claude_code_exec":
-                teacher_backend = teacher_backend or "openai_chat"
-                student_backend = student_backend or "claude_code_exec"
+                optimizer_backend = optimizer_backend or "openai_chat"
+                target_backend = target_backend or "claude_code_exec"
             elif backend in {"qwen", "qwen_chat"}:
-                teacher_backend = teacher_backend or "openai_chat"
-                student_backend = student_backend or "qwen_chat"
+                optimizer_backend = optimizer_backend or "openai_chat"
+                target_backend = target_backend or "qwen_chat"
             else:
-                teacher_backend = teacher_backend or "openai_chat"
-                student_backend = student_backend or "openai_chat"
-            cfg["teacher_backend"] = teacher_backend
-            cfg["student_backend"] = student_backend
-        set_teacher_backend(teacher_backend)
-        set_student_backend(student_backend)
-        set_teacher_deployment(cfg["teacher_model"])
-        set_student_deployment(cfg["student_model"])
+                optimizer_backend = optimizer_backend or "openai_chat"
+                target_backend = target_backend or "openai_chat"
+            cfg["optimizer_backend"] = optimizer_backend
+            cfg["target_backend"] = target_backend
+        set_optimizer_backend(optimizer_backend)
+        set_target_backend(target_backend)
+        set_optimizer_deployment(cfg["optimizer_model"])
+        set_target_deployment(cfg["target_model"])
         configure_codex_exec(
             path=cfg.get("codex_exec_path", "codex"),
             sandbox=cfg.get("codex_exec_sandbox", "workspace-write"),
@@ -637,19 +636,17 @@ class ReflACTTrainer:
             max_tokens=cfg.get("qwen_chat_max_tokens"),
             enable_thinking=cfg.get("qwen_chat_enable_thinking"),
         )
-        os.environ["REFLACT_CODEX_TRACE_TO_TEACHER"] = (
+        os.environ["REFLACT_CODEX_TRACE_TO_OPTIMIZER"] = (
             "1"
-            if student_backend == "codex_exec" and cfg.get("codex_trace_to_teacher", False)
+            if target_backend == "codex_exec" and cfg.get("codex_trace_to_optimizer", False)
             else "0"
         )
         reasoning = cfg.get("reasoning_effort", "") or None
         set_reasoning_effort(reasoning)
-        if student_backend == "claude_code_exec" and cfg.get("use_deep_reflect", False):
-            raise NotImplementedError("claude_code_exec does not support use_deep_reflect yet.")
         print(
             f"  [model config] backend={backend}  "
-            f"teacher={cfg['teacher_model']} ({teacher_backend})  "
-            f"student={cfg['student_model']} ({student_backend})  "
+            f"optimizer={cfg['optimizer_model']} ({optimizer_backend})  "
+            f"target={cfg['target_model']} ({target_backend})  "
             f"reasoning={reasoning or 'off'}"
         )
 
@@ -897,7 +894,7 @@ class ReflACTTrainer:
                 epoch_rng.shuffle(shuffled_seeds)
 
             # Step buffer: accumulates per-step context (failure patterns +
-            # rejected edits) within this epoch so teachers see full history.
+            # rejected edits) within this epoch so optimizers see full history.
             step_buffer: list[dict] = []
             active_meta_skill = (
                 _load_meta_skill_content(out_root, epoch - 1)
@@ -948,7 +945,6 @@ class ReflACTTrainer:
                 accum_rollout_stats: list[dict] = []
                 total_rollout_time = 0.0
                 total_reflect_time = 0.0
-                total_deep_reflect_time = 0.0
 
                 for a in range(accumulation):
                     batch_idx = step_in_epoch * accumulation + a
@@ -1013,33 +1009,6 @@ class ReflACTTrainer:
                         f"success_patches={len(success_patches)}"
                     )
 
-                    deep_failure_patches: list[dict] = []
-                    deep_success_patches: list[dict] = []
-                    if cfg.get("use_deep_reflect", False):
-                        t_phase = time.time()
-                        deep_raw_patches = adapter.deep_reflect(
-                            rollout_results,
-                            current_skill,
-                            batch_dir,
-                            env_manager=train_env,
-                            prediction_dir=pred_dir,
-                            random_seed=batch_seed,
-                            step_buffer_context=step_buffer_context,
-                            meta_skill_context=active_meta_skill,
-                        )
-                        deep_failure_patches, deep_success_patches = _normalise_patches(
-                            deep_raw_patches,
-                            update_mode=update_mode,
-                        )
-                        all_failure_patches.extend(deep_failure_patches)
-                        all_success_patches.extend(deep_success_patches)
-                        all_raw_patches.extend(deep_raw_patches)
-                        total_deep_reflect_time += time.time() - t_phase
-                        print(
-                            f"    [2b/6 DEEP REFLECT] failure_patches={len(deep_failure_patches)} "
-                            f"success_patches={len(deep_success_patches)}"
-                        )
-
                     # Track per-batch stats
                     accum_rollout_stats.append({
                         "batch_idx": a,
@@ -1049,8 +1018,6 @@ class ReflACTTrainer:
                         "soft": r_soft,
                         "n_failure_patches": len(failure_patches),
                         "n_success_patches": len(success_patches),
-                        "n_deep_failure_patches": len(deep_failure_patches),
-                        "n_deep_success_patches": len(deep_success_patches),
                     })
 
                 # ── End of accumulation loop ─────────────────────────────
@@ -1066,8 +1033,6 @@ class ReflACTTrainer:
                 step_rec["accumulation_batches"] = accum_rollout_stats
                 step_rec["timing"]["rollout_s"] = round(total_rollout_time, 1)
                 step_rec["timing"]["reflect_s"] = round(total_reflect_time, 1)
-                if cfg.get("use_deep_reflect", False):
-                    step_rec["timing"]["deep_reflect_s"] = round(total_deep_reflect_time, 1)
 
                 n_total_patches = len(all_failure_patches) + len(all_success_patches)
                 step_rec["n_patches"] = n_total_patches
@@ -1383,7 +1348,7 @@ class ReflACTTrainer:
 
                 step_buffer.append(buf_entry)
 
-                # Persist for meta-reflect
+                # Persist step digest for step buffer context
                 digest_path = os.path.join(step_dir, "trajectory_digest.json")
                 with open(digest_path, "w") as f:
                     json.dump(buf_entry, f, indent=2, ensure_ascii=False)
@@ -1431,7 +1396,6 @@ class ReflACTTrainer:
                     f"dt={step_rec['wall_time_s']}s\n"
                     f"    timing: rollout={timing.get('rollout_s',0)}s "
                     f"reflect={timing.get('reflect_s',0)}s "
-                    f"deep_reflect={timing.get('deep_reflect_s',0)}s "
                     f"aggregate={timing.get('aggregate_s',0)}s "
                     f"select={timing.get('select_s',0)}s "
                     f"evaluate={timing.get('evaluate_s',0)}s"
@@ -1463,11 +1427,16 @@ class ReflACTTrainer:
                             epoch_comparison_pairs = None
                     if (
                         slow_saved.get("slow_update_content")
-                        and slow_saved.get("action") in {"accept", "accept_new_best"}
+                        and slow_saved.get("action") in {
+                            "accept", "accept_new_best", "force_accept",
+                        }
                         and epoch >= 2
                     ):
                         current_skill = replace_slow_update_field(
                             current_skill, slow_saved["slow_update_content"],
+                        )
+                        best_skill = replace_slow_update_field(
+                            best_skill, slow_saved["slow_update_content"],
                         )
                 elif epoch == 1:
                     # Epoch 1: inject empty placeholder
@@ -1577,7 +1546,7 @@ class ReflACTTrainer:
                     # 5. Extract previous slow update guidance for reflection
                     existing_guidance = extract_slow_update_field(current_skill)
 
-                    # 6. Teacher analysis (with reflection on previous guidance)
+                    # 6. Optimizer analysis (with reflection on previous guidance)
                     slow_result = run_slow_update(
                         current_skill,
                         results_prev,
@@ -1608,67 +1577,29 @@ class ReflACTTrainer:
                             "observed across adjacent epochs."
                         )
 
-                        if slow_candidate_hash in sel_cache:
-                            slow_sel_hard, slow_sel_soft = sel_cache[slow_candidate_hash]
-                            print(
-                                f"    [slow gate] cache hit: hard={slow_sel_hard:.4f}"
-                            )
-                        else:
-                            sel_env, sel_n = _build_eval_env(
-                                split="valid_seen",
-                                env_num=cfg["sel_env_num"],
-                                seed=seed,
-                            )
-                            print(f"    [slow gate] selection items={sel_n}")
-                            slow_eval_dir = os.path.join(slow_dir, "selection_eval")
-                            slow_eval_results = adapter.rollout(
-                                sel_env, slow_candidate, slow_eval_dir,
-                            )
-                            slow_sel_hard, slow_sel_soft = compute_score(slow_eval_results)
-                            sel_cache[slow_candidate_hash] = (slow_sel_hard, slow_sel_soft)
-
-                        slow_gate = evaluate_gate(
-                            candidate_skill=slow_candidate,
-                            cand_hard=slow_sel_hard,
-                            current_skill=current_skill,
-                            current_score=current_score,
-                            best_skill=best_skill,
-                            best_score=best_score,
-                            best_step=best_step,
-                            global_step=global_step,
+                        # Slow update field is force-updated into both
+                        # current_skill and best_skill unconditionally.
+                        # The epoch-level longitudinal guidance should always
+                        # persist — it must not be gated by step-level
+                        # selection scores.
+                        slow_content = slow_result["slow_update_content"]
+                        current_skill = replace_slow_update_field(
+                            current_skill, slow_content,
                         )
-                        slow_result["selection_hard"] = slow_sel_hard
-                        slow_result["selection_soft"] = slow_sel_soft
-                        slow_result["action"] = slow_gate.action
-                        prev_current = current_score
-                        prev_best = best_score
-                        current_skill = slow_gate.current_skill
-                        current_score = slow_gate.current_score
-                        best_skill = slow_gate.best_skill
-                        best_score = slow_gate.best_score
-                        best_step = slow_gate.best_step
-                        if slow_gate.action in {"accept", "accept_new_best"}:
-                            current_origin = f"slow_update_epoch_{epoch:02d}"
-                        if slow_gate.action == "accept_new_best":
-                            best_origin = current_origin
-                            print(
-                                f"    [slow gate] ACCEPT (new best) "
-                                f"hard={slow_sel_hard:.4f} > prev best {prev_best:.4f}"
-                            )
-                        elif slow_gate.action == "accept":
-                            print(
-                                f"    [slow gate] ACCEPT "
-                                f"hard={slow_sel_hard:.4f} > current={prev_current:.4f}"
-                            )
-                        else:
-                            print(
-                                f"    [slow gate] REJECT "
-                                f"hard={slow_sel_hard:.4f} <= current={current_score:.4f}"
-                            )
+                        best_skill = replace_slow_update_field(
+                            best_skill, slow_content,
+                        )
+                        # Update caches so downstream steps use the
+                        # slow-update-injected skill for hashing.
+                        slow_candidate_hash = skill_hash(current_skill)
+                        sel_cache[slow_candidate_hash] = (current_score, 0.0)
+
+                        slow_result["action"] = "force_accept"
+                        current_origin = f"slow_update_epoch_{epoch:02d}"
 
                         print(
-                            f"    [slow update] guidance written "
-                            f"({len(slow_result['slow_update_content'])} chars), "
+                            f"    [slow update] force-injected into current & best "
+                            f"({len(slow_content)} chars), "
                             f"{slow_time}s"
                         )
                     else:
@@ -1693,7 +1624,7 @@ class ReflACTTrainer:
                         f"current={current_score:.4f} best={best_score:.4f}"
                     )
 
-            # ── META SKILL (end of epoch, teacher-side memory) ─────────
+            # ── META SKILL (end of epoch, optimizer-side memory) ─────────
             use_meta_skill = cfg.get("use_meta_skill", False)
             if use_meta_skill:
                 meta_skill_dir = os.path.join(out_root, "meta_skill", f"epoch_{epoch:02d}")
@@ -1713,7 +1644,7 @@ class ReflACTTrainer:
                     print(
                         f"\n  {'='*60}\n"
                         f"  META SKILL — Epoch {epoch} "
-                        f"(teacher memory from epoch {epoch-1} vs {epoch})\n"
+                        f"(optimizer memory from epoch {epoch-1} vs {epoch})\n"
                         f"  {'='*60}"
                     )
 
@@ -1805,232 +1736,6 @@ class ReflACTTrainer:
 
                     with open(meta_skill_done_path, "w") as f:
                         json.dump(meta_skill_result, f, indent=2, ensure_ascii=False)
-
-            # ── META-REFLECT (end of epoch) ─────────────────────────────
-            use_meta = cfg.get("use_meta_reflect", False)
-            if use_meta:
-                # Collect this epoch's step records from history
-                epoch_records = [
-                    h for h in history if h.get("epoch") == epoch
-                ]
-                if epoch_records:
-                    meta_step_tag = f"meta_epoch_{epoch}"
-                    meta_dir = os.path.join(out_root, "meta_reflect", f"epoch_{epoch:02d}")
-                    meta_done_path = os.path.join(meta_dir, "meta_result.json")
-
-                    # Resume support: skip if already done
-                    if os.path.exists(meta_done_path):
-                        with open(meta_done_path) as f:
-                            meta_result = json.load(f)
-                        meta_summary = meta_result.get("meta_summary", "")
-                        meta_action = meta_result.get("action", "unknown")
-                        print(
-                            f"\n  [META-REFLECT epoch {epoch}] "
-                            f"resumed — {meta_action}"
-                        )
-                    else:
-                        os.makedirs(meta_dir, exist_ok=True)
-                        print(
-                            f"\n  {'='*60}\n"
-                            f"  META-REFLECT — Epoch {epoch} "
-                            f"({len(epoch_records)} steps)\n"
-                            f"  {'='*60}"
-                        )
-
-                        meta_edit_budget = cfg.get("meta_edit_budget", 4)
-
-                        # Build epoch history text
-                        epoch_history_text = build_epoch_history(
-                            epoch_records, out_root,
-                            update_mode=update_mode,
-                        )
-
-                        # Load previous meta summary
-                        prev_meta_path = os.path.join(
-                            out_root, "meta_reflect",
-                            f"epoch_{epoch - 1:02d}", "meta_result.json",
-                        )
-                        prev_meta_summary = ""
-                        if os.path.exists(prev_meta_path):
-                            try:
-                                with open(prev_meta_path) as f:
-                                    prev = json.load(f)
-                                prev_meta_summary = prev.get("meta_summary", "")
-                            except Exception:
-                                pass
-
-                        # Get env-specific meta prompt if available
-                        meta_system = adapter.get_meta_reflect_prompt() \
-                            if hasattr(adapter, "get_meta_reflect_prompt") else None
-
-                        # Run meta-reflect
-                        t_meta = time.time()
-                        meta_result = run_meta_reflect(
-                            skill_content=current_skill,
-                            epoch_history_text=epoch_history_text,
-                            prev_meta_summary=prev_meta_summary,
-                            meta_edit_budget=meta_edit_budget,
-                            system_prompt=meta_system,
-                            update_mode=update_mode,
-                        )
-                        meta_time = round(time.time() - t_meta, 1)
-
-                        meta_items = get_payload_items(meta_result.get("patch", {}) if meta_result else {}, update_mode)
-                        if meta_result and meta_items:
-                            for item in meta_items:
-                                item.setdefault("update_origin", "meta_reflect_momentum")
-                                item.setdefault(
-                                    "update_target",
-                                    "Consolidate epoch-level accepted/rejected edit patterns.",
-                                )
-                            meta_summary = meta_result.get("meta_summary", "")
-                            print(
-                                f"    [meta-reflect] "
-                                f"{len(meta_items)} {payload_label(update_mode)} proposed, "
-                                f"{meta_time}s"
-                            )
-
-                            meta_rewrite_result = None
-                            if update_mode == "rewrite_from_suggestions":
-                                meta_rewrite_result = rewrite_skill_from_suggestions(
-                                    current_skill,
-                                    meta_result["patch"],
-                                    env=cfg.get("env"),
-                                    reasoning_effort=rewrite_reasoning_effort,
-                                    max_completion_tokens=rewrite_max_completion_tokens,
-                                )
-                                if meta_rewrite_result and meta_rewrite_result.get("new_skill"):
-                                    meta_candidate = meta_rewrite_result["new_skill"]
-                                    meta_apply_report = []
-                                else:
-                                    meta_candidate = current_skill
-                                    meta_apply_report = []
-                            else:
-                                meta_candidate, meta_apply_report = apply_patch_with_report(
-                                    current_skill, meta_result["patch"],
-                                )
-                            meta_cand_hash = skill_hash(meta_candidate)
-
-                            # Save meta candidate
-                            with open(os.path.join(meta_dir, "meta_candidate.md"), "w") as f:
-                                f.write(meta_candidate)
-                            with open(os.path.join(meta_dir, "meta_patch.json"), "w") as f:
-                                json.dump(meta_result, f, indent=2, ensure_ascii=False)
-                            if meta_apply_report:
-                                with open(os.path.join(meta_dir, "meta_edit_apply_report.json"), "w") as f:
-                                    json.dump(meta_apply_report, f, indent=2, ensure_ascii=False)
-                            if meta_rewrite_result:
-                                with open(os.path.join(meta_dir, "meta_rewrite_result.json"), "w") as f:
-                                    json.dump(meta_rewrite_result, f, indent=2, ensure_ascii=False)
-                                meta_result["rewrite_change_summary"] = meta_rewrite_result.get("change_summary", [])
-
-                            if update_mode == "rewrite_from_suggestions" and meta_rewrite_result is None:
-                                meta_action = "skip_no_rewrite"
-                                meta_result["action"] = meta_action
-                                meta_result["meta_summary"] = meta_summary
-                                meta_result["time_s"] = meta_time
-                                print(
-                                    "    [meta-reflect] no usable rewrite generated — "
-                                    f"skill unchanged, {meta_time}s"
-                                )
-                            else:
-                                # Gate: evaluate meta candidate
-                                if meta_cand_hash in sel_cache:
-                                    meta_hard, meta_soft = sel_cache[meta_cand_hash]
-                                    print(
-                                        f"    [meta-gate] "
-                                        f"cache hit: hard={meta_hard:.4f}"
-                                    )
-                                else:
-                                    sel_env, _ = _build_eval_env(
-                                        split="valid_seen",
-                                        env_num=cfg["sel_env_num"],
-                                        seed=seed,
-                                    )
-                                    meta_eval_dir = os.path.join(meta_dir, "selection_eval")
-                                    meta_eval_results = adapter.rollout(
-                                        sel_env, meta_candidate, meta_eval_dir,
-                                    )
-                                    meta_hard, meta_soft = compute_score(meta_eval_results)
-                                    sel_cache[meta_cand_hash] = (meta_hard, meta_soft)
-
-                                meta_gate = evaluate_gate(
-                                    candidate_skill=meta_candidate,
-                                    cand_hard=meta_hard,
-                                    current_skill=current_skill,
-                                    current_score=current_score,
-                                    best_skill=best_skill,
-                                    best_score=best_score,
-                                    best_step=best_step,
-                                    global_step=global_step,
-                                )
-                                meta_action = meta_gate.action
-                                prev_score = current_score
-                                current_skill = meta_gate.current_skill
-                                current_score = meta_gate.current_score
-                                best_skill = meta_gate.best_skill
-                                best_score = meta_gate.best_score
-                                best_step = meta_gate.best_step
-                                if meta_gate.action in {"accept", "accept_new_best"}:
-                                    current_origin = f"meta_reflect_epoch_{epoch:02d}"
-                                if meta_gate.action == "accept_new_best":
-                                    best_origin = current_origin
-                                if meta_gate.action == "accept_new_best":
-                                    print(
-                                        f"    [meta-gate] ACCEPT (new best) "
-                                        f"hard={meta_hard:.4f} > "
-                                        f"prev best {prev_score:.4f}"
-                                    )
-                                elif meta_gate.action == "accept":
-                                    print(
-                                        f"    [meta-gate] ACCEPT "
-                                        f"hard={meta_hard:.4f} > "
-                                        f"current={prev_score:.4f}"
-                                    )
-                                else:
-                                    print(
-                                        f"    [meta-gate] REJECT "
-                                        f"hard={meta_hard:.4f} <= "
-                                        f"current={current_score:.4f}"
-                                    )
-
-                                # Save meta result with gate outcome
-                                meta_result["action"] = meta_action
-                                meta_result["gate_score"] = meta_hard
-                                meta_result["time_s"] = meta_time
-                                meta_result["update_origin"] = "meta_reflect_momentum"
-                                meta_result["update_target"] = (
-                                    "Consolidate epoch-level editing directions that helped or hurt."
-                                )
-                        else:
-                            meta_summary = meta_result.get("meta_summary", "") if meta_result else ""
-                            meta_action = f"skip_no_{payload_label(update_mode)}"
-                            if meta_result is None:
-                                meta_result = {}
-                            meta_result["action"] = meta_action
-                            meta_result["meta_summary"] = meta_summary
-                            meta_result["time_s"] = meta_time
-                            print(
-                                f"    [meta-reflect] no {payload_label(update_mode)} proposed — "
-                                f"skill unchanged, {meta_time}s"
-                            )
-
-                        # Persist
-                        with open(meta_done_path, "w") as f:
-                            json.dump(meta_result, f, indent=2, ensure_ascii=False)
-
-                        # Save updated skill after meta-reflect
-                        _save_skill(out_root, global_step, current_skill)
-                        with open(os.path.join(out_root, "best_skill.md"), "w") as f:
-                            f.write(best_skill)
-                        _persist_runtime_state(global_step)
-
-                        print(
-                            f"\n  [META-REFLECT epoch {epoch} done] "
-                            f"action={meta_action} "
-                            f"current={current_score:.4f} "
-                            f"best={best_score:.4f}"
-                        )
 
         # ── Save best skill ──────────────────────────────────────────────
         with open(os.path.join(out_root, "best_skill.md"), "w") as f:

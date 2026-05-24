@@ -233,37 +233,37 @@ def process_one(
 
         no1, ip1, _ = cases[0]
         pred_path_1 = os.path.join(task_out_dir, f"{no1}_pred.xlsx")
-        student_prompt_parts = [
+        target_prompt_parts = [
             f"# Instruction\n{instruction}",
             f"# Input file\n{ip1}",
             f"# Output file\n{pred_path_1}",
         ]
         if instruction_type:
-            student_prompt_parts.append(f"# Instruction type\n{instruction_type}")
+            target_prompt_parts.append(f"# Instruction type\n{instruction_type}")
         if answer_position_eval:
-            student_prompt_parts.append(f"# Answer position\n{answer_position_eval}")
+            target_prompt_parts.append(f"# Answer position\n{answer_position_eval}")
         if diagnostic_trace_context.strip():
-            student_prompt_parts.insert(
+            target_prompt_parts.insert(
                 0,
                 "# Previous Codex Trace Snapshot\n"
                 "This is a partial transcript from an earlier attempt. Use it as your current reasoning context.\n\n"
                 f"{diagnostic_trace_context.strip()}",
             )
         if diagnostic_mode and diagnostic_instruction.strip():
-            student_prompt_parts.append(f"# Training readout\n{diagnostic_instruction.strip()}")
-        student_user_prompt = "\n\n".join(student_prompt_parts)
+            target_prompt_parts.append(f"# Training readout\n{diagnostic_instruction.strip()}")
+        target_user_prompt = "\n\n".join(target_prompt_parts)
         try:
             from skillopt.envs.spreadsheetbench.react_agent import _build_system
-            student_system_prompt = _build_system(skill_content)
+            target_system_prompt = _build_system(skill_content)
         except Exception:
-            student_system_prompt = ""
-        if student_system_prompt:
-            with open(os.path.join(task_out_dir, "student_system_prompt.txt"), "w") as f:
-                f.write(student_system_prompt)
-            result["student_system_prompt"] = student_system_prompt
-        with open(os.path.join(task_out_dir, "student_user_prompt.txt"), "w") as f:
-            f.write(student_user_prompt)
-        result["student_user_prompt"] = student_user_prompt
+            target_system_prompt = ""
+        if target_system_prompt:
+            with open(os.path.join(task_out_dir, "target_system_prompt.txt"), "w") as f:
+                f.write(target_system_prompt)
+            result["target_system_prompt"] = target_system_prompt
+        with open(os.path.join(task_out_dir, "target_user_prompt.txt"), "w") as f:
+            f.write(target_user_prompt)
+        result["target_user_prompt"] = target_user_prompt
 
         # ── Stage 1: run ReAct agent on test case 1 ─────────────────────
         result["phase"] = "agent"
@@ -288,14 +288,14 @@ def process_one(
                 diagnostic_trace_context=diagnostic_trace_context,
             )
             result["n_turns"] = agent_result.get("n_turns", 0)
-            if agent_result.get("student_system_prompt"):
-                with open(os.path.join(task_out_dir, "student_system_prompt.txt"), "w") as f:
-                    f.write(agent_result["student_system_prompt"])
-                result["student_system_prompt"] = agent_result["student_system_prompt"]
-            if agent_result.get("student_user_prompt"):
-                with open(os.path.join(task_out_dir, "student_user_prompt.txt"), "w") as f:
-                    f.write(agent_result["student_user_prompt"])
-                result["student_user_prompt"] = agent_result["student_user_prompt"]
+            if agent_result.get("target_system_prompt"):
+                with open(os.path.join(task_out_dir, "target_system_prompt.txt"), "w") as f:
+                    f.write(agent_result["target_system_prompt"])
+                result["target_system_prompt"] = agent_result["target_system_prompt"]
+            if agent_result.get("target_user_prompt"):
+                with open(os.path.join(task_out_dir, "target_user_prompt.txt"), "w") as f:
+                    f.write(agent_result["target_user_prompt"])
+                result["target_user_prompt"] = agent_result["target_user_prompt"]
 
             # Save conversation log
             with open(os.path.join(task_out_dir, "conversation.json"), "w") as f:
@@ -606,7 +606,7 @@ def process_one_codegen(
         task_out_dir = os.path.join(out_root, "predictions", task_id)
         os.makedirs(task_out_dir, exist_ok=True)
 
-        # ── Save context for Teacher (Reflect stage) ──────────────────
+        # ── Save context for Optimizer (Reflect stage) ──────────────────
         from skillopt.envs.spreadsheetbench.codegen_agent import (
             _preview_workbook, _build_system, _build_user,
         )
@@ -615,8 +615,8 @@ def process_one_codegen(
             preview_text = _preview_workbook(first_input_for_preview)
         except Exception:
             preview_text = "(preview failed)"
-        student_system = _build_system(skill_content)
-        student_user = _build_user(
+        target_system = _build_system(skill_content)
+        target_user = _build_user(
             instruction,
             first_input_for_preview,
             instruction_type,
@@ -628,14 +628,14 @@ def process_one_codegen(
 
         with open(os.path.join(task_out_dir, "spreadsheet_preview.txt"), "w") as f:
             f.write(preview_text)
-        with open(os.path.join(task_out_dir, "student_system_prompt.txt"), "w") as f:
-            f.write(student_system)
-        with open(os.path.join(task_out_dir, "student_user_prompt.txt"), "w") as f:
-            f.write(student_user)
+        with open(os.path.join(task_out_dir, "target_system_prompt.txt"), "w") as f:
+            f.write(target_system)
+        with open(os.path.join(task_out_dir, "target_user_prompt.txt"), "w") as f:
+            f.write(target_user)
 
         result["spreadsheet_preview"] = preview_text
-        result["student_system_prompt"] = student_system
-        result["student_user_prompt"] = student_user
+        result["target_system_prompt"] = target_system
+        result["target_user_prompt"] = target_user
 
         # ── LLM phase ──────────────────────────────────────────────────
         result["phase"] = "llm"

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from skillopt.model import chat_teacher
+from skillopt.model import chat_optimizer
 from skillopt.optimizer.meta_skill import format_meta_skill_context
 from skillopt.optimizer.update_modes import (
     get_payload_items,
@@ -33,17 +33,17 @@ def _merge_batch(
     meta_skill_context: str = "",
     level: int = 1,
 ) -> dict:
-    """Call teacher LLM to merge a batch of patches into one."""
+    """Call optimizer LLM to merge a batch of patches into one."""
     patches_text = json.dumps(patches, ensure_ascii=False, indent=2)
     user = (
         f"## Current Skill\n{skill_content}\n\n"
         f"## Patches to merge ({len(patches)} total, merge level {level})\n{patches_text}"
     )
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user = f"{teacher_ctx}\n\n{user}"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user = f"{optimizer_ctx}\n\n{user}"
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=system_prompt,
             user=user,
             max_completion_tokens=64000 if is_full_rewrite_minibatch_mode(update_mode) else 4096,
@@ -224,11 +224,11 @@ def merge_patches(
             f"{len(s_edits)} edits\n\n"
             f"{combined_text}"
         )
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user = f"{teacher_ctx}\n\n{user}"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user = f"{optimizer_ctx}\n\n{user}"
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=merge_final_prompt,
             user=user,
             max_completion_tokens=64000 if is_full_rewrite_minibatch_mode(update_mode) else 4096,

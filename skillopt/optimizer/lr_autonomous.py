@@ -1,11 +1,11 @@
-"""Teacher-driven autonomous update-size decisions."""
+"""Optimizer-driven autonomous update-size decisions."""
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
 
-from skillopt.model import chat_teacher
+from skillopt.model import chat_optimizer
 from skillopt.optimizer.meta_skill import format_meta_skill_context
 from skillopt.optimizer.update_modes import describe_item, get_payload_items, payload_label
 from skillopt.prompts import load_prompt
@@ -39,7 +39,7 @@ def decide_autonomous_learning_rate(
     step_buffer_context: str = "",
     meta_skill_context: str = "",
 ) -> dict:
-    """Ask the teacher to choose the number of update items for this step.
+    """Ask the optimizer to choose the number of update items for this step.
 
     The prompt intentionally avoids default budgets, candidate budget lists, or
     scheduler history. The only hard post-processing is validity: the returned
@@ -65,15 +65,15 @@ def decide_autonomous_learning_rate(
     )
     if step_buffer_context.strip():
         user += f"\n\n## Previous Steps in This Epoch\n{step_buffer_context}"
-    teacher_ctx = format_meta_skill_context(meta_skill_context)
-    if teacher_ctx:
-        user = f"{teacher_ctx}\n\n{user}"
+    optimizer_ctx = format_meta_skill_context(meta_skill_context)
+    if optimizer_ctx:
+        user = f"{optimizer_ctx}\n\n{user}"
 
     response = ""
     parsed: dict | None = None
     decision: int | None = None
     try:
-        response, _ = chat_teacher(
+        response, _ = chat_optimizer(
             system=load_prompt("lr_autonomous"),
             user=user,
             max_completion_tokens=2048,

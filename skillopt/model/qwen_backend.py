@@ -1,4 +1,4 @@
-"""OpenAI-compatible Qwen chat backend for the student path."""
+"""OpenAI-compatible Qwen chat backend for the target path."""
 from __future__ import annotations
 
 import json
@@ -32,8 +32,8 @@ ENABLE_THINKING = os.environ.get("QWEN_CHAT_ENABLE_THINKING", "false").strip().l
     "on",
 }
 
-STUDENT_DEPLOYMENT = os.environ.get(
-    "STUDENT_DEPLOYMENT",
+TARGET_DEPLOYMENT = os.environ.get(
+    "TARGET_DEPLOYMENT",
     default_model_for_backend("qwen_chat"),
 )
 
@@ -140,7 +140,7 @@ def _chat_messages_impl(
     timeout: float | None = None,
 ) -> tuple[Any, dict[str, int]]:
     payload: dict[str, Any] = {
-        "model": deployment or STUDENT_DEPLOYMENT,
+        "model": deployment or TARGET_DEPLOYMENT,
         "messages": _json_safe(messages),
         "max_tokens": min(max_completion_tokens, MAX_TOKENS),
     }
@@ -214,12 +214,12 @@ def get_max_tokens() -> int:
     return MAX_TOKENS
 
 
-def chat_student(
+def chat_target(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     reasoning_effort: str | None = None,
     timeout: float | None = None,
 ) -> tuple[str, dict[str, int]]:
@@ -234,11 +234,11 @@ def chat_student(
     )
 
 
-def chat_student_messages(
+def chat_target_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     reasoning_effort: str | None = None,
     *,
     tools: list[dict[str, Any]] | None = None,
@@ -271,7 +271,7 @@ def set_reasoning_effort(effort: str | None) -> None:
     del effort
 
 
-def set_student_deployment(deployment: str) -> None:
-    global STUDENT_DEPLOYMENT
-    STUDENT_DEPLOYMENT = deployment or default_model_for_backend("qwen_chat")
-    os.environ["STUDENT_DEPLOYMENT"] = STUDENT_DEPLOYMENT
+def set_target_deployment(deployment: str) -> None:
+    global TARGET_DEPLOYMENT
+    TARGET_DEPLOYMENT = deployment or default_model_for_backend("qwen_chat")
+    os.environ["TARGET_DEPLOYMENT"] = TARGET_DEPLOYMENT

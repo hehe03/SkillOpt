@@ -1,4 +1,4 @@
-"""Runtime backend configuration for teacher/student model calls."""
+"""Runtime backend configuration for optimizer/target model calls."""
 from __future__ import annotations
 
 import os
@@ -12,8 +12,8 @@ def _parse_bool(value: str | None, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-TEACHER_BACKEND = normalize_backend_name(os.environ.get("TEACHER_BACKEND", "openai_chat"))
-STUDENT_BACKEND = normalize_backend_name(os.environ.get("STUDENT_BACKEND", "openai_chat"))
+OPTIMIZER_BACKEND = normalize_backend_name(os.environ.get("OPTIMIZER_BACKEND", "openai_chat"))
+TARGET_BACKEND = normalize_backend_name(os.environ.get("TARGET_BACKEND", "openai_chat"))
 
 CODEX_EXEC_PATH = os.environ.get("CODEX_EXEC_PATH", "codex")
 CODEX_EXEC_SANDBOX = os.environ.get("CODEX_EXEC_SANDBOX", "workspace-write")
@@ -46,46 +46,46 @@ CLAUDE_CODE_EXEC_MAX_THINKING_TOKENS = max(
 )
 
 
-def set_teacher_backend(backend: str) -> None:
-    global TEACHER_BACKEND
-    TEACHER_BACKEND = normalize_backend_name(backend or "openai_chat")
-    if TEACHER_BACKEND not in {"openai_chat", "claude_chat"}:
+def set_optimizer_backend(backend: str) -> None:
+    global OPTIMIZER_BACKEND
+    OPTIMIZER_BACKEND = normalize_backend_name(backend or "openai_chat")
+    if OPTIMIZER_BACKEND not in {"openai_chat", "claude_chat"}:
         raise ValueError(
-            f"Unsupported teacher backend: {TEACHER_BACKEND!r}. "
+            f"Unsupported optimizer backend: {OPTIMIZER_BACKEND!r}. "
             "Supported values are 'openai_chat' and 'claude_chat'."
         )
-    os.environ["TEACHER_BACKEND"] = TEACHER_BACKEND
+    os.environ["OPTIMIZER_BACKEND"] = OPTIMIZER_BACKEND
 
 
-def get_teacher_backend() -> str:
-    return TEACHER_BACKEND
+def get_optimizer_backend() -> str:
+    return OPTIMIZER_BACKEND
 
 
-def set_student_backend(backend: str) -> None:
-    global STUDENT_BACKEND
-    STUDENT_BACKEND = normalize_backend_name(backend or "openai_chat")
-    if STUDENT_BACKEND not in {"openai_chat", "claude_chat", "qwen_chat", "codex_exec", "claude_code_exec"}:
+def set_target_backend(backend: str) -> None:
+    global TARGET_BACKEND
+    TARGET_BACKEND = normalize_backend_name(backend or "openai_chat")
+    if TARGET_BACKEND not in {"openai_chat", "claude_chat", "qwen_chat", "codex_exec", "claude_code_exec"}:
         raise ValueError(
-            f"Unsupported student backend: {STUDENT_BACKEND!r}. "
+            f"Unsupported target backend: {TARGET_BACKEND!r}. "
             "Supported values are 'openai_chat', 'claude_chat', 'qwen_chat', 'codex_exec', and 'claude_code_exec'."
         )
-    os.environ["STUDENT_BACKEND"] = STUDENT_BACKEND
+    os.environ["TARGET_BACKEND"] = TARGET_BACKEND
 
 
-def get_student_backend() -> str:
-    return STUDENT_BACKEND
+def get_target_backend() -> str:
+    return TARGET_BACKEND
 
 
-def is_student_exec_backend() -> bool:
-    return STUDENT_BACKEND in {"codex_exec", "claude_code_exec"}
+def is_target_exec_backend() -> bool:
+    return TARGET_BACKEND in {"codex_exec", "claude_code_exec"}
 
 
-def is_teacher_chat_backend() -> bool:
-    return TEACHER_BACKEND in {"openai_chat", "claude_chat"}
+def is_optimizer_chat_backend() -> bool:
+    return OPTIMIZER_BACKEND in {"openai_chat", "claude_chat"}
 
 
-def is_student_chat_backend() -> bool:
-    return STUDENT_BACKEND in {"openai_chat", "claude_chat", "qwen_chat"}
+def is_target_chat_backend() -> bool:
+    return TARGET_BACKEND in {"openai_chat", "claude_chat", "qwen_chat"}
 
 
 def configure_codex_exec(

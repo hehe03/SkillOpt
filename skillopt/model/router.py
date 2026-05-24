@@ -43,15 +43,15 @@ def get_backend_name() -> str:
     return _ACTIVE_BACKEND
 
 
-def chat_teacher(
+def chat_optimizer(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     timeout: int | None = None,
 ) -> tuple[str, dict[str, int]]:
-    return _backend_module(_ACTIVE_BACKEND).chat_teacher(
+    return _backend_module(_ACTIVE_BACKEND).chat_optimizer(
         system=system,
         user=user,
         max_completion_tokens=max_completion_tokens,
@@ -61,15 +61,15 @@ def chat_teacher(
     )
 
 
-def chat_student(
+def chat_target(
     system: str,
     user: str,
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     timeout: int | None = None,
 ) -> tuple[str, dict[str, int]]:
-    return _backend_module(_ACTIVE_BACKEND).chat_student(
+    return _backend_module(_ACTIVE_BACKEND).chat_target(
         system=system,
         user=user,
         max_completion_tokens=max_completion_tokens,
@@ -99,18 +99,18 @@ def chat_with_deployment(
     )
 
 
-def chat_teacher_messages(
+def chat_optimizer_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "teacher",
+    stage: str = "optimizer",
     *,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     return_message: bool = False,
     timeout: int | None = None,
 ) -> tuple[Any, dict[str, int]]:
-    return _backend_module(_ACTIVE_BACKEND).chat_teacher_messages(
+    return _backend_module(_ACTIVE_BACKEND).chat_optimizer_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=retries,
@@ -122,18 +122,18 @@ def chat_teacher_messages(
     )
 
 
-def chat_student_messages(
+def chat_target_messages(
     messages: list[dict[str, Any]],
     max_completion_tokens: int = 16384,
     retries: int = 5,
-    stage: str = "student",
+    stage: str = "target",
     *,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     return_message: bool = False,
     timeout: int | None = None,
 ) -> tuple[Any, dict[str, int]]:
-    return _backend_module(_ACTIVE_BACKEND).chat_student_messages(
+    return _backend_module(_ACTIVE_BACKEND).chat_target_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=retries,
@@ -183,14 +183,14 @@ def set_reasoning_effort(effort: str | None) -> None:
         module.set_reasoning_effort(effort)
 
 
-def set_student_deployment(deployment: str) -> None:
+def set_target_deployment(deployment: str) -> None:
     for module in _all_backend_modules():
-        module.set_student_deployment(deployment)
+        module.set_target_deployment(deployment)
 
 
-def set_teacher_deployment(deployment: str) -> None:
+def set_optimizer_deployment(deployment: str) -> None:
     for module in _all_backend_modules():
-        module.set_teacher_deployment(deployment)
+        module.set_optimizer_deployment(deployment)
 
 
 def configure_azure_openai(
@@ -201,18 +201,18 @@ def configure_azure_openai(
     auth_mode: str | None = None,
     ad_scope: str | None = None,
     managed_identity_client_id: str | None = None,
-    teacher_endpoint: str | None = None,
-    teacher_api_version: str | None = None,
-    teacher_api_key: str | None = None,
-    teacher_auth_mode: str | None = None,
-    teacher_ad_scope: str | None = None,
-    teacher_managed_identity_client_id: str | None = None,
-    student_endpoint: str | None = None,
-    student_api_version: str | None = None,
-    student_api_key: str | None = None,
-    student_auth_mode: str | None = None,
-    student_ad_scope: str | None = None,
-    student_managed_identity_client_id: str | None = None,
+    optimizer_endpoint: str | None = None,
+    optimizer_api_version: str | None = None,
+    optimizer_api_key: str | None = None,
+    optimizer_auth_mode: str | None = None,
+    optimizer_ad_scope: str | None = None,
+    optimizer_managed_identity_client_id: str | None = None,
+    target_endpoint: str | None = None,
+    target_api_version: str | None = None,
+    target_api_key: str | None = None,
+    target_auth_mode: str | None = None,
+    target_ad_scope: str | None = None,
+    target_managed_identity_client_id: str | None = None,
 ) -> None:
     azure_openai.configure_azure_openai(
         endpoint=endpoint,
@@ -221,16 +221,16 @@ def configure_azure_openai(
         auth_mode=auth_mode,
         ad_scope=ad_scope,
         managed_identity_client_id=managed_identity_client_id,
-        teacher_endpoint=teacher_endpoint,
-        teacher_api_version=teacher_api_version,
-        teacher_api_key=teacher_api_key,
-        teacher_auth_mode=teacher_auth_mode,
-        teacher_ad_scope=teacher_ad_scope,
-        teacher_managed_identity_client_id=teacher_managed_identity_client_id,
-        student_endpoint=student_endpoint,
-        student_api_version=student_api_version,
-        student_api_key=student_api_key,
-        student_auth_mode=student_auth_mode,
-        student_ad_scope=student_ad_scope,
-        student_managed_identity_client_id=student_managed_identity_client_id,
+        optimizer_endpoint=optimizer_endpoint,
+        optimizer_api_version=optimizer_api_version,
+        optimizer_api_key=optimizer_api_key,
+        optimizer_auth_mode=optimizer_auth_mode,
+        optimizer_ad_scope=optimizer_ad_scope,
+        optimizer_managed_identity_client_id=optimizer_managed_identity_client_id,
+        target_endpoint=target_endpoint,
+        target_api_version=target_api_version,
+        target_api_key=target_api_key,
+        target_auth_mode=target_auth_mode,
+        target_ad_scope=target_ad_scope,
+        target_managed_identity_client_id=target_managed_identity_client_id,
     )
