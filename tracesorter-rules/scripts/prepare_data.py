@@ -36,9 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42, help="ratio 模式随机种子。")
     parser.add_argument(
         "--label-policy",
-        choices=["train_only", "all", "none"],
-        default="train_only",
-        help="标签落盘策略。默认 train_only：只把 train 标签写入 items.json，避免测试集标签泄露给 Agent。",
+        choices=["train_only", "train_val", "all", "none"],
+        default="train_val",
+        help="标签落盘策略。默认 train_val：train/val 写入标签用于优化和选择，test 隐藏标签防泄露。",
     )
     parser.add_argument("--labeled-only", action="store_true", help="只保留有 goodcase/badcase 标签的样本。默认保留所有样本。")
     parser.add_argument("--include-unlabeled", action="store_true", help="兼容旧参数；现在默认已经保留无标签样本。")
@@ -132,6 +132,8 @@ def _include_label_for_split(split: str, label_policy: str) -> bool:
         return True
     if label_policy == "none":
         return False
+    if label_policy == "train_val":
+        return split in {"train", "val"}
     return split == "train"
 
 
