@@ -69,7 +69,7 @@ def predict_items(
     return rows, summary
 
 
-def write_predictions(rows: list[dict[str, Any]], summary: dict[str, Any], out_root: str | Path) -> None:
+def write_predictions(rows: list[dict[str, Any]], summary: dict[str, Any], out_root: str | Path, *, split: str) -> None:
     output_dir = Path(out_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "predictions.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -89,6 +89,18 @@ def write_predictions(rows: list[dict[str, Any]], summary: dict[str, Any], out_r
                     "bad_score": row["bad_score"],
                     "good_score": row["good_score"],
                     "reason": row["reason"],
+                }
+            )
+
+    with (output_dir / "metadata.csv").open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["name", "predicted_label", "split"])
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "name": row["id"],
+                    "predicted_label": row["predicted_label"],
+                    "split": split,
                 }
             )
 
@@ -114,5 +126,5 @@ def predict_split(
         good_threshold=good_threshold,
         use_group_cap=use_group_cap,
     )
-    write_predictions(rows, summary, out_root)
+    write_predictions(rows, summary, out_root, split=split)
     return summary

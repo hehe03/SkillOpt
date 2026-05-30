@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
 import sys
@@ -146,6 +147,25 @@ def _write_split(out_dir: Path, split: str, records: list[TraceRecord], *, label
     return items
 
 
+def _write_metadata(out_dir: Path, splits: dict[str, list[TraceRecord]], *, label_policy: str) -> None:
+    fieldnames = ["name", "label", "source", "split"]
+    metadata_path = out_dir / "metadata.csv"
+    with metadata_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for split, split_records in splits.items():
+            include_label = _include_label_for_split(split, label_policy)
+            for record in split_records:
+                writer.writerow(
+                    {
+                        "name": record.name,
+                        "label": record.label if include_label else "",
+                        "source": record.source or "",
+                        "split": split,
+                    }
+                )
+
+
 def _visible_label_counts(items: list[dict]) -> dict[str, int]:
     return dict(Counter(str(item.get("label") or "unlabeled") for item in items))
 
@@ -193,6 +213,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     visible_items_by_split: dict[str, list[dict]] = {}
     for split, split_records in splits.items():
         visible_items_by_split[split] = _write_split(out_dir, split, split_records, label_policy=args.label_policy)
+    _write_metadata(out_dir, splits, label_policy=args.label_policy)
 
     manifest = {
         "trace_path": str(Path(args.trace_path).resolve()),
@@ -200,6 +221,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "split_mode": mode,
         "use_val": use_val,
         "label_policy": args.label_policy,
+        "generated_metadata": str((out_dir / "metadata.csv").resolve()),
         "seed": args.seed,
         "splits": {
             split: {

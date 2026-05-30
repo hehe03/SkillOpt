@@ -88,6 +88,7 @@ case_002.json,badcase,my_source,test
 - `test/items.json` 不会写入 `label`，即使 `metadata.csv` 里有测试标签。
 - `test` split 中嵌套的 `metadata.label` 也会被清洗，避免从 metadata 副本泄露。
 - `split_manifest.json` 只记录可见标签分布，不记录隐藏的测试标签分布。
+- 输出目录下会生成新的 `metadata.csv`，其中 `split` 列写入本次实际划分；`label` 列同样遵守 `--label-policy`，默认隐藏 test 标签。
 
 注意：如果 trace 文件名本身包含 `good`、`bad` 等标签语义，文件名仍可能泄露标签。真实盲测数据应避免这种命名，或后续增加匿名 ID 映射。
 
@@ -102,6 +103,18 @@ python .\tracesorter-rules\scripts\score_predictions.py `
 ```
 
 `score_predictions.py` 不会输出逐条真实标签，只输出 `precision/recall/f1/accuracy` 等聚合结果。
+
+也可以使用两份 `metadata.csv` 计算指标：
+
+```powershell
+python .\tracesorter-rules\scripts\score_predictions.py `
+  --gt-metadata .\gt_metadata.csv `
+  --pred-metadata .\tracesorter-rules\outputs\predict_test\metadata.csv `
+  --split test `
+  --output .\tracesorter-rules\outputs\predict_test\metadata_score.json
+```
+
+其中 GT metadata 使用 `label` 列，预测 metadata 使用 `predicted_label` 列；如果预测 metadata 没有 `predicted_label`，脚本会兼容使用 `label` 列作为预测标签。
 
 按 metadata 中的 `train/val/test` 切分：
 
@@ -198,6 +211,7 @@ python .\tracesorter-rules\scripts\predict_skill.py `
 - `predictions.csv`：便于人工查看，包含 `id`、`predicted_label`、`bad_score`、`good_score`、`reason`。
 - `predictions.json`：完整命中规则详情，规则投票标签字段名为 `rule_label`，避免和真实标签混淆。
 - `prediction_summary.json`：预测数量和 good/bad 分布。
+- `metadata.csv`：预测 metadata，包含 `name`、`predicted_label`、`split`，可用于 `score_predictions.py` 和 GT metadata 计算聚合指标。
 
 该脚本不读取 `metadata.csv`，也不输出真实测试标签。
 
