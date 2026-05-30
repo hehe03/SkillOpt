@@ -169,6 +169,26 @@ python .\tracesorter-rules\scripts\eval_skill.py `
   --out-root .\tracesorter-rules\outputs\eval_initial_test
 ```
 
+## 对测试集输出预测标签
+
+如果只需要给 test 样本打标签，不需要计算指标，使用：
+
+```powershell
+python .\tracesorter-rules\scripts\predict_skill.py `
+  --skill .\tracesorter-rules\skills\initial.md `
+  --split-dir .\tracesorter-rules\data\my_split `
+  --split test `
+  --out-root .\tracesorter-rules\outputs\predict_test
+```
+
+输出文件：
+
+- `predictions.csv`：便于人工查看，包含 `id`、`predicted_label`、`bad_score`、`good_score`、`reason`。
+- `predictions.json`：完整命中规则详情，规则投票标签字段名为 `rule_label`，避免和真实标签混淆。
+- `prediction_summary.json`：预测数量和 good/bad 分布。
+
+该脚本不读取 `metadata.csv`，也不输出真实测试标签。
+
 ## SkillOpt 优化入口形态
 
 `skills/initial.md` 中的 JSON 代码块就是待优化对象：
@@ -187,6 +207,36 @@ python .\tracesorter-rules\scripts\eval_skill.py `
 - 可以新增、删除或改写 `rules`。
 - 可以调整规则的 `weight`、`group`、`group_cap` 和条件。
 - 不要让 SkillOpt 修改本目录下的 Python 评估代码，先保持闭环稳定。
+
+### 导入已有生成规则
+
+如果你已经有规则生成脚本产出的 JSON，例如 `{"rules": [...]}`，可以导入成待优化 skill：
+
+```powershell
+python .\tracesorter-rules\scripts\import_rules.py `
+  --rules-json .\path\to\labeled_rules.json `
+  --out-skill .\tracesorter-rules\skills\generated_initial.md
+```
+
+导入后，把 `generated_initial.md` 当作优化入口即可。
+
+本项目会兼容原规则生成脚本中的常见规则字段：
+
+- 额外元数据字段：`layer`、`component`、`feature_group`、`source_method` 会被保留，但分类时不会强依赖。
+- 条件字段：支持 `all`、`any`、`feature`、`op`、`value`。
+- 分数字段：支持 `weight`、`group`、`group_cap`。
+- 规则标签：支持 `label=goodcase/badcase`。
+
+特征抽取已补齐常见生成规则会引用的字段，例如：
+
+- `repeated_action_count`
+- `empty_result_count`
+- `text_chars`
+- `unique_action_ratio`
+- `field_nonempty_ratio:<path>`
+- `field_number_mean:<path>`
+- `field_text:<path>`
+- `field_exists:<path>`
 
 ## 无 API 的 LLM 优化
 

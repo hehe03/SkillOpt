@@ -30,6 +30,12 @@
 3. 如果评估 split 没有可见标签，只汇报预测数量和输出路径，不声称有 precision/recall/f1。
 4. 如果用户要求用隐藏测试标签计算最终指标，运行 `scripts/score_predictions.py`，只输出聚合指标，不输出逐条真实标签。
 
+当用户说“对测试集输出标签/预测标签”时：
+
+1. 运行 `scripts/predict_skill.py`。
+2. 默认使用 `split=test`。
+3. 只输出 `predicted_label`、分数和命中规则；不要读取 metadata，也不要输出真实标签。
+
 当用户说“用当前对话/你自己/当前 Agent 优化规则”时：
 
 1. 运行 `scripts/optimize_rules.py --llm-provider harness` 生成 `harness_task.md` 和 `rule_optimization_prompt.md`。

@@ -46,6 +46,19 @@ def _iter_dicts(value: Any):
             yield from _iter_dicts(child)
 
 
+def _iter_field_values(value: Any, prefix: str = ""):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            path = _field_path(prefix, str(key))
+            yield path, child
+            yield from _iter_field_values(child, path)
+    elif isinstance(value, list):
+        list_path = f"{prefix}[]" if prefix else "[]"
+        for child in value:
+            yield list_path, child
+            yield from _iter_field_values(child, list_path)
+
+
 def _is_empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
@@ -76,26 +89,58 @@ def _field_path(prefix: str, key: str) -> str:
     return f"{prefix}.{key}" if prefix else key
 
 
-def _add_dynamic_field_features(features: dict[str, Any], value: Any, prefix: str = "") -> None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            path = _field_path(prefix, str(key))
-            features[f"field_exists:{path}"] = True
-            if isinstance(child, str):
-                features[f"field_text:{path}"] = child
-                features[f"field_text_chars:{path}"] = len(child)
-            elif isinstance(child, bool):
-                features[f"field_bool:{path}"] = child
-            elif isinstance(child, (int, float)):
-                features[f"field_number:{path}"] = float(child)
-            elif isinstance(child, list):
-                features[f"field_count:{path}"] = len(child)
-            _add_dynamic_field_features(features, child, path)
-    elif isinstance(value, list):
-        list_path = f"{prefix}[]" if prefix else "[]"
-        features[f"field_count:{list_path}"] = len(value)
-        for child in value:
-            _add_dynamic_field_features(features, child, list_path)
+def _add_dynamic_field_features(features: dict[str, Any], value: Any) -> None:
+    values_by_path: dict[str, list[Any]] = {}
+    for path, child in _iter_field_values(value):
+        values_by_path.setdefault(path, []).append(child)
+
+    for path, values in values_by_path.items():
+        texts = [_text_of(item).strip() for item in values]
+        nonempty_texts = [text for text in texts if text]
+        unique_texts = set(texts)
+        text_lengths = [len(text) for text in texts]
+        numbers: list[float] = []
+        bools: list[bool] = []
+        for item in values:
+            if isinstance(item, bool):
+                bools.append(item)
+            elif isinstance(item, (int, float)):
+                numbers.append(float(item))
+            else:
+                try:
+                    numbers.append(float(str(item)))
+                except (TypeError, ValueError):
+                    pass
+
+        features[f"field_exists:{path}"] = True
+        features[f"field_count:{path}"] = len(values)
+        features[f"field_text:{path}"] = "\n".join(nonempty_texts)[:4000]
+        features[f"field_empty_count:{path}"] = len(values) - len(nonempty_texts)
+        features[f"field_text_chars:{path}"] = sum(text_lengths)
+        features[f"field_text_max_chars:{path}"] = max(text_lengths) if text_lengths else 0
+        features[f"field_unique_value_count:{path}"] = len(unique_texts)
+        features[f"field_unique_value_ratio:{path}"] = round(len(unique_texts) / len(values), 4) if values else 0.0
+        features[f"field_nonempty_ratio:{path}"] = round(len(nonempty_texts) / len(values), 4) if values else 0.0
+        features[f"field_error_text_count:{path}"] = sum(1 for text in texts if ERROR_RE.search(text))
+        features[f"field_number_count:{path}"] = len(numbers)
+        features[f"field_number_ratio:{path}"] = round(len(numbers) / len(values), 4) if values else 0.0
+        if numbers:
+            features[f"field_number_min:{path}"] = min(numbers)
+            features[f"field_number_max:{path}"] = max(numbers)
+            features[f"field_number_mean:{path}"] = round(sum(numbers) / len(numbers), 4)
+            features[f"field_number_range:{path}"] = round(max(numbers) - min(numbers), 4)
+            features[f"field_number_zero_ratio:{path}"] = round(sum(1 for number in numbers if number == 0) / len(numbers), 4)
+            features[f"field_number_positive_ratio:{path}"] = round(
+                sum(1 for number in numbers if number > 0) / len(numbers),
+                4,
+            )
+            if len(numbers) == 1:
+                features[f"field_number:{path}"] = numbers[0]
+        if bools:
+            features[f"field_bool_true_ratio:{path}"] = round(sum(1 for item in bools if item) / len(bools), 4)
+            features[f"field_bool_false_ratio:{path}"] = round(sum(1 for item in bools if not item) / len(bools), 4)
+            if len(bools) == 1:
+                features[f"field_bool:{path}"] = bools[0]
 
 
 def extract_features(raw_trace: Any) -> dict[str, Any]:
@@ -139,6 +184,7 @@ def extract_features(raw_trace: Any) -> dict[str, Any]:
 
     error_count = sum(1 for text in text_values if ERROR_RE.search(text))
     action_counts = Counter(actions)
+    repeated_action_count = sum(count - 1 for count in action_counts.values() if count > 1)
 
     features: dict[str, Any] = {
         "parse_error": parse_error,
@@ -149,14 +195,17 @@ def extract_features(raw_trace: Any) -> dict[str, Any]:
         "has_error_text": bool(error_count),
         "error_count": error_count,
         "result_count": result_total,
+        "empty_result_count": empty_results,
         "empty_result_ratio": round(empty_results / result_total, 4) if result_total else 0.0,
         "nonempty_result_ratio": round(nonempty_results / result_total, 4) if result_total else 0.0,
         "has_final_answer": final_answer_hits > 0,
         "final_answer_count": final_answer_hits,
         "action_count": len(actions),
         "unique_action_count": len(action_counts),
+        "unique_action_ratio": round(len(action_counts) / len(actions), 4) if actions else 0.0,
+        "repeated_action_count": repeated_action_count,
         "max_consecutive_same_action": max_repeat,
+        "text_chars": len(joined_text),
     }
     _add_dynamic_field_features(features, trace)
     return features
-

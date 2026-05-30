@@ -38,6 +38,8 @@ def parse_skill_payload_from_text(text: str) -> dict[str, Any]:
 
 
 def write_skill_markdown(payload: dict[str, Any], path: str | Path, *, title: str = "TraceSorter 优化规则 Skill") -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     text = (
         f"# {title}\n\n"
         "下面的 JSON 是当前规则 skill。评估脚本只读取 JSON 代码块。\n\n"
@@ -45,4 +47,4 @@ def write_skill_markdown(payload: dict[str, Any], path: str | Path, *, title: st
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
         "```\n"
     )
-    Path(path).write_text(text, encoding="utf-8")
+    output_path.write_text(text, encoding="utf-8")

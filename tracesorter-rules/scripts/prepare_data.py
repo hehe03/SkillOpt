@@ -216,7 +216,15 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    SCRIPT_ARGS = ["--trace-path", "../data/sample_raw/traces", "--metadata", "../data/sample_raw/metadata.csv",
-                   "--out-dir", "../data/sample_raw/splits/", "--split-mode", "auto", "--no-val"]
+    # Fill SCRIPT_ARGS when running this file directly from an IDE.
+    # Example:
+    # SCRIPT_ARGS = [
+    #     "--trace-path", "../data/sample_raw/traces",
+    #     "--metadata", "../data/sample_raw/metadata.csv",
+    #     "--out-dir", "../data/sample_raw/splits",
+    #     "--split-mode", "auto",
+    #     "--no-val",
+    # ]
+    SCRIPT_ARGS = None
 
     main(SCRIPT_ARGS)
