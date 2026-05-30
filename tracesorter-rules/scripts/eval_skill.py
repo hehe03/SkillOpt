@@ -39,10 +39,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("评估完成")
     print(f"样本数: {summary['n_items']}")
     print(f"规则数: {summary['rules']}")
-    print(f"badcase precision: {summary['badcase_precision']}")
-    print(f"badcase recall: {summary['badcase_recall']}")
-    print(f"badcase f1: {summary['badcase_f1']}")
-    print(f"accuracy: {summary['accuracy']}")
+    if summary.get("count", 0):
+        print(f"有标签样本数: {summary['count']}")
+        print(f"badcase precision: {summary['badcase_precision']}")
+        print(f"badcase recall: {summary['badcase_recall']}")
+        print(f"badcase f1: {summary['badcase_f1']}")
+        print(f"accuracy: {summary['accuracy']}")
+    else:
+        print("当前 split 没有可见标签，仅输出预测和规则命中原因，未计算 precision/recall/f1。")
     print(f"输出目录: {Path(args.out_root).resolve()}")
 
 

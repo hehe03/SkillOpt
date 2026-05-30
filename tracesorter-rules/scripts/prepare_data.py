@@ -34,7 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-val", action="store_true", help="不输出 val/，只生成 train/ 和 test/。")
     parser.add_argument("--ratios", default="", help="ratio 模式比例。启用 val 时形如 0.7,0.15,0.15；--no-val 时形如 0.8,0.2。")
     parser.add_argument("--seed", type=int, default=42, help="ratio 模式随机种子。")
-    parser.add_argument("--include-unlabeled", action="store_true", help="保留没有 goodcase/badcase 标签的样本。默认过滤。")
+    parser.add_argument(
+        "--label-policy",
+        choices=["train_only", "all", "none"],
+        default="train_only",
+        help="标签落盘策略。默认 train_only：只把 train 标签写入 items.json，避免测试集标签泄露给 Agent。",
+    )
+    parser.add_argument("--labeled-only", action="store_true", help="只保留有 goodcase/badcase 标签的样本。默认保留所有样本。")
+    parser.add_argument("--include-unlabeled", action="store_true", help="兼容旧参数；现在默认已经保留无标签样本。")
     return parser
 
 
@@ -120,22 +127,32 @@ def _has_metadata_splits(records: list[TraceRecord], *, train_split: str, val_sp
     return required.issubset(present)
 
 
-def _write_split(out_dir: Path, split: str, records: list[TraceRecord]) -> None:
+def _include_label_for_split(split: str, label_policy: str) -> bool:
+    if label_policy == "all":
+        return True
+    if label_policy == "none":
+        return False
+    return split == "train"
+
+
+def _write_split(out_dir: Path, split: str, records: list[TraceRecord], *, label_policy: str) -> list[dict]:
     split_dir = out_dir / split
     split_dir.mkdir(parents=True, exist_ok=True)
-    items = [record_to_item(record) for record in records]
+    include_label = _include_label_for_split(split, label_policy)
+    items = [record_to_item(record, include_label=include_label) for record in records]
     (split_dir / "items.json").write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return items
 
 
-def _label_counts(records: list[TraceRecord]) -> dict[str, int]:
-    return dict(Counter(record.label or "unlabeled" for record in records))
+def _visible_label_counts(items: list[dict]) -> dict[str, int]:
+    return dict(Counter(str(item.get("label") or "unlabeled") for item in items))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     use_val = not args.no_val
     records = load_records(args.trace_path, args.metadata)
-    if not args.include_unlabeled:
+    if args.labeled_only:
         records = records_with_labels(records)
     if not records:
         raise ValueError("没有可用样本。请检查 trace-path、metadata 和 label。")
@@ -171,19 +188,21 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    visible_items_by_split: dict[str, list[dict]] = {}
     for split, split_records in splits.items():
-        _write_split(out_dir, split, split_records)
+        visible_items_by_split[split] = _write_split(out_dir, split, split_records, label_policy=args.label_policy)
 
     manifest = {
         "trace_path": str(Path(args.trace_path).resolve()),
         "metadata": str(Path(args.metadata).resolve()),
         "split_mode": mode,
         "use_val": use_val,
+        "label_policy": args.label_policy,
         "seed": args.seed,
         "splits": {
             split: {
                 "count": len(split_records),
-                "labels": _label_counts(split_records),
+                "visible_labels": _visible_label_counts(visible_items_by_split[split]),
             }
             for split, split_records in splits.items()
         },
@@ -193,10 +212,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("预处理完成")
     print(f"输出目录: {out_dir.resolve()}")
     for split, split_records in splits.items():
-        print(f"{split}: {len(split_records)} {_label_counts(split_records)}")
+        print(f"{split}: {len(split_records)} visible_labels={_visible_label_counts(visible_items_by_split[split])}")
 
 
 if __name__ == "__main__":
-    SCRIPT_ARGS: list[str] | None = None
+    SCRIPT_ARGS = ["--trace-path", "../data/sample_raw/traces", "--metadata", "../data/sample_raw/metadata.csv",
+                   "--out-dir", "../data/sample_raw/splits/", "--split-mode", "auto", "--no-val"]
 
     main(SCRIPT_ARGS)

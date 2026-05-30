@@ -94,13 +94,14 @@ def load_records(trace_path: str | Path, metadata_path: str | Path | None = None
     return records
 
 
-def record_to_item(record: TraceRecord) -> dict[str, Any]:
+def record_to_item(record: TraceRecord, *, include_label: bool = True) -> dict[str, Any]:
     item: dict[str, Any] = {
         "id": record.name,
-        "label": record.label,
         "trace": record.trace,
         "source_path": str(record.path),
     }
+    if include_label:
+        item["label"] = record.label
     if record.source:
         item["source"] = record.source
     if record.split:
@@ -108,7 +109,10 @@ def record_to_item(record: TraceRecord) -> dict[str, Any]:
     if record.parse_error:
         item["parse_error"] = record.parse_error
     if record.metadata:
-        item["metadata"] = record.metadata
+        metadata = dict(record.metadata)
+        if not include_label:
+            metadata.pop("label", None)
+        item["metadata"] = metadata
     return item
 
 
@@ -119,4 +123,3 @@ def records_with_labels(records: list[TraceRecord]) -> list[TraceRecord]:
 def select_by_split(records: list[TraceRecord], split: str) -> list[TraceRecord]:
     split = split.strip().lower()
     return [record for record in records if (record.split or "").lower() == split]
-

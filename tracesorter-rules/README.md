@@ -73,6 +73,35 @@ case_002.json,badcase,my_source,test
 
 `name` 必须和 trace 文件名一致。`label` 支持 `good`、`bad`、`goodcase`、`badcase` 等写法。
 
+### 防止测试集标签泄露
+
+在 Agent 对话环境中，推荐让 Agent 只把 `metadata.csv` 的路径传给脚本，不直接读取 CSV 内容。预处理脚本默认使用：
+
+```text
+--label-policy train_only
+```
+
+这表示：
+
+- `train/items.json` 会写入 `label`，用于规则优化。
+- `val/items.json` 和 `test/items.json` 不会写入 `label`，即使 `metadata.csv` 里有这些标签。
+- 非训练 split 中嵌套的 `metadata.label` 也会被清洗，避免从 metadata 副本泄露。
+- `split_manifest.json` 只记录可见标签分布，不记录隐藏的测试标签分布。
+
+注意：如果 trace 文件名本身包含 `good`、`bad` 等标签语义，文件名仍可能泄露标签。真实盲测数据应避免这种命名，或后续增加匿名 ID 映射。
+
+如果需要最终测试指标，可以让脚本内部读取 metadata 并只输出聚合指标：
+
+```powershell
+python .\tracesorter-rules\scripts\score_predictions.py `
+  --predictions .\tracesorter-rules\outputs\eval_initial_test\predictions.json `
+  --metadata .\metadata.csv `
+  --split test `
+  --output .\tracesorter-rules\outputs\eval_initial_test\private_metrics.json
+```
+
+`score_predictions.py` 不会输出逐条真实标签，只输出 `precision/recall/f1/accuracy` 等聚合结果。
+
 按 metadata 中的 `train/val/test` 切分：
 
 ```powershell

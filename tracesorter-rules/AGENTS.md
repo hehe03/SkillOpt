@@ -9,6 +9,8 @@
 - 除非用户明确要求展示命令，否则不要把一串命令当作主要答案；应直接执行并用中文汇报结果。
 - 运行 Python 前遵循仓库根目录要求，使用 `conda run -n llm python ...` 或已激活的 `llm` 环境，并设置 UTF-8 输出，避免 Windows 中文乱码。
 - 本目录不得依赖原 TraceSorter 项目路径或导入原项目代码。
+- 防标签泄露：不要用 `Get-Content`、编辑器读取、复制粘贴或总结用户的 `metadata.csv`。Agent 只能把 metadata 路径传给脚本，由脚本内部加载。
+- 默认预处理必须使用 `label_policy=train_only`，只把 `train` 标签写入 `items.json`。除非用户明确要求，否则不要把 `val/test` 标签写入任何可被 Agent 阅读的中间文件，包括嵌套的 `metadata.label`。
 
 ## 用户自然语言意图映射
 
@@ -18,13 +20,15 @@
 2. 运行 `scripts/prepare_data.py`。
 3. 如果用户说“不需要验证集”“数据少”“只分训练和测试”，使用 `--no-val`。
 4. 如果 metadata 有 split 列，优先按 metadata 切分；否则使用 ratio 切分。
-5. 汇报生成的 split 目录、各 split 数量和标签分布。
+5. 保持默认 `--label-policy train_only`，避免非训练集标签落盘；非训练 split 中的 `metadata.label` 也必须清洗。
+6. 汇报生成的 split 目录、各 split 数量和可见标签分布，不汇报隐藏标签分布。
 
 当用户说“评估当前规则”时：
 
 1. 运行 `scripts/eval_skill.py`。
 2. 默认评估 `test`；如果用户要优化过程反馈，则评估 `train` 或 `val`。
-3. 汇报 `badcase_precision`、`badcase_recall`、`badcase_f1`、`accuracy` 和误判数量。
+3. 如果评估 split 没有可见标签，只汇报预测数量和输出路径，不声称有 precision/recall/f1。
+4. 如果用户要求用隐藏测试标签计算最终指标，运行 `scripts/score_predictions.py`，只输出聚合指标，不输出逐条真实标签。
 
 当用户说“用当前对话/你自己/当前 Agent 优化规则”时：
 
@@ -41,6 +45,7 @@
 - 用户数据预处理输出：`tracesorter-rules/data/user_split`
 - 对话式优化输出：`tracesorter-rules/outputs/harness_round_<N>`
 - 优化后 skill：`tracesorter-rules/outputs/harness_round_<N>/optimized.md`
+- 隐藏标签聚合指标：`tracesorter-rules/outputs/<run>/private_metrics.json`
 
 ## 输出要求
 
