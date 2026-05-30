@@ -35,6 +35,7 @@
 1. 运行 `scripts/predict_skill.py`。
 2. 默认使用 `split=test`。
 3. 只输出 `predicted_label`、分数和命中规则；不要读取 metadata，也不要输出真实标签。
+4. 如果用户在对齐原项目 `run_rule_test.py` 默认规则加权结果，优先加 `--no-group-cap`，因为原项目默认是简单权重累加。
 
 当用户说“用当前对话/你自己/当前 Agent 优化规则”时：
 

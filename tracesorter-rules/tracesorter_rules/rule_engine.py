@@ -76,11 +76,21 @@ def rule_matches(features: dict[str, Any], rule: dict[str, Any]) -> bool:
     return bool(all_conditions or any_conditions)
 
 
-def _add_grouped_score(scores: dict[str, dict[str, float]], rule: dict[str, Any], label: str, weight: float) -> None:
+def _add_grouped_score(
+    scores: dict[str, dict[str, float]],
+    rule: dict[str, Any],
+    label: str,
+    weight: float,
+    *,
+    use_group_cap: bool,
+) -> None:
     group = str(rule.get("group") or rule.get("id") or "ungrouped")
-    group_cap = float(rule.get("group_cap", 999.0))
     current = scores[label].get(group, 0.0)
-    scores[label][group] = min(group_cap, current + weight)
+    next_score = current + weight
+    if use_group_cap:
+        group_cap = float(rule.get("group_cap", 999.0))
+        next_score = min(group_cap, next_score)
+    scores[label][group] = next_score
 
 
 def classify_features(
@@ -89,6 +99,7 @@ def classify_features(
     *,
     bad_threshold: float = 0.60,
     good_threshold: float = 0.50,
+    use_group_cap: bool = True,
 ) -> dict[str, Any]:
     hits: list[RuleHit] = []
     grouped_scores = {"badcase": {}, "goodcase": {}}
@@ -110,7 +121,7 @@ def classify_features(
         )
         if label not in grouped_scores:
             grouped_scores[label] = {}
-        _add_grouped_score(grouped_scores, rule, label, weight)
+        _add_grouped_score(grouped_scores, rule, label, weight, use_group_cap=use_group_cap)
 
     bad_score = round(sum(grouped_scores.get("badcase", {}).values()), 4)
     good_score = round(sum(grouped_scores.get("goodcase", {}).values()), 4)
@@ -126,7 +137,7 @@ def classify_features(
         "predicted_label": predicted_label,
         "bad_score": bad_score,
         "good_score": good_score,
+        "use_group_cap": use_group_cap,
         "matched_rules": [asdict(hit) for hit in hits],
         "reason": reason or "no rule matched; default to goodcase",
     }
-

@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-items", type=int, default=0, help="只评估前 N 条；0 表示全部。")
     parser.add_argument("--bad-threshold", type=float, help="覆盖 skill 中的 badcase 判定阈值。")
     parser.add_argument("--good-threshold", type=float, help="覆盖 skill 中的 goodcase 判定阈值。")
+    parser.add_argument("--no-group-cap", action="store_true", help="关闭 group_cap，按原始规则权重简单累加。")
     return parser
 
 
@@ -35,10 +36,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         max_items=args.max_items,
         bad_threshold=args.bad_threshold,
         good_threshold=args.good_threshold,
+        use_group_cap=not args.no_group_cap,
     )
     print("评估完成")
     print(f"样本数: {summary['n_items']}")
     print(f"规则数: {summary['rules']}")
+    print(f"group_cap: {'开启' if summary['use_group_cap'] else '关闭'}")
     if summary.get("count", 0):
         print(f"有标签样本数: {summary['count']}")
         print(f"badcase precision: {summary['badcase_precision']}")

@@ -27,6 +27,7 @@ def predict_items(
     *,
     bad_threshold: float | None = None,
     good_threshold: float | None = None,
+    use_group_cap: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     payload = load_skill_payload(skill_path)
     rules = payload["rules"]
@@ -42,6 +43,7 @@ def predict_items(
             rules,
             bad_threshold=bad_threshold,
             good_threshold=good_threshold,
+            use_group_cap=use_group_cap,
         )
         rows.append(
             {
@@ -49,6 +51,7 @@ def predict_items(
                 "predicted_label": prediction["predicted_label"],
                 "bad_score": prediction["bad_score"],
                 "good_score": prediction["good_score"],
+                "use_group_cap": prediction["use_group_cap"],
                 "reason": prediction["reason"],
                 "matched_rules": _prediction_rules_only(prediction["matched_rules"]),
             }
@@ -59,6 +62,7 @@ def predict_items(
         "rules": len(rules),
         "bad_threshold": bad_threshold,
         "good_threshold": good_threshold,
+        "use_group_cap": use_group_cap,
         "predicted_goodcase": sum(1 for row in rows if row["predicted_label"] == "goodcase"),
         "predicted_badcase": sum(1 for row in rows if row["predicted_label"] == "badcase"),
     }
@@ -98,6 +102,7 @@ def predict_split(
     max_items: int = 0,
     bad_threshold: float | None = None,
     good_threshold: float | None = None,
+    use_group_cap: bool = True,
 ) -> dict[str, Any]:
     items = load_split_items(split_dir, split)
     if max_items:
@@ -107,6 +112,7 @@ def predict_split(
         skill_path,
         bad_threshold=bad_threshold,
         good_threshold=good_threshold,
+        use_group_cap=use_group_cap,
     )
     write_predictions(rows, summary, out_root)
     return summary

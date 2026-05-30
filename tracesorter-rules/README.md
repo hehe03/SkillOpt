@@ -181,6 +181,17 @@ python .\tracesorter-rules\scripts\predict_skill.py `
   --out-root .\tracesorter-rules\outputs\predict_test
 ```
 
+如果要更接近原项目 `run_rule_test.py` 的简单权重累加逻辑，可以关闭 `group_cap`：
+
+```powershell
+python .\tracesorter-rules\scripts\predict_skill.py `
+  --skill .\tracesorter-rules\skills\initial.md `
+  --split-dir .\tracesorter-rules\data\my_split `
+  --split test `
+  --out-root .\tracesorter-rules\outputs\predict_test_no_group_cap `
+  --no-group-cap
+```
+
 输出文件：
 
 - `predictions.csv`：便于人工查看，包含 `id`、`predicted_label`、`bad_score`、`good_score`、`reason`。
@@ -188,6 +199,8 @@ python .\tracesorter-rules\scripts\predict_skill.py `
 - `prediction_summary.json`：预测数量和 good/bad 分布。
 
 该脚本不读取 `metadata.csv`，也不输出真实测试标签。
+
+`eval_skill.py` 也支持同样的 `--no-group-cap` 参数，便于对有标签 split 做对比实验。
 
 ## SkillOpt 优化入口形态
 

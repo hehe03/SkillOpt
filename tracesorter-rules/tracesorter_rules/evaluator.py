@@ -39,6 +39,7 @@ def evaluate_items(
     *,
     bad_threshold: float | None = None,
     good_threshold: float | None = None,
+    use_group_cap: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     payload = load_skill_payload(skill_path)
     rules = payload["rules"]
@@ -55,6 +56,7 @@ def evaluate_items(
             rules,
             bad_threshold=bad_threshold,
             good_threshold=good_threshold,
+            use_group_cap=use_group_cap,
         )
         hard = int(label in {"goodcase", "badcase"} and prediction["predicted_label"] == label)
         rows.append(
@@ -65,8 +67,9 @@ def evaluate_items(
                 "hard": hard,
                 "soft": hard,
                 "bad_score": prediction["bad_score"],
-                "good_score": prediction["good_score"],
-                "reason": prediction["reason"],
+            "good_score": prediction["good_score"],
+            "use_group_cap": prediction["use_group_cap"],
+            "reason": prediction["reason"],
                 "matched_rules": prediction["matched_rules"],
                 "features": features,
             }
@@ -79,6 +82,7 @@ def evaluate_items(
             "rules": len(rules),
             "bad_threshold": bad_threshold,
             "good_threshold": good_threshold,
+            "use_group_cap": use_group_cap,
         }
     )
     return rows, summary
@@ -93,6 +97,7 @@ def evaluate_split(
     max_items: int = 0,
     bad_threshold: float | None = None,
     good_threshold: float | None = None,
+    use_group_cap: bool = True,
 ) -> dict[str, Any]:
     items = load_split_items(split_dir, split)
     if max_items:
@@ -103,6 +108,7 @@ def evaluate_split(
         skill_path,
         bad_threshold=bad_threshold,
         good_threshold=good_threshold,
+        use_group_cap=use_group_cap,
     )
 
     output_dir = Path(out_root)
@@ -112,4 +118,3 @@ def evaluate_split(
     failures = [row for row in rows if row.get("label") in {"goodcase", "badcase"} and not row["hard"]]
     (output_dir / "failure_cases.json").write_text(json.dumps(failures, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
-
