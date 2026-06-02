@@ -1,0 +1,62 @@
+_base_: ../../../configs/_base_/default.yaml
+
+model:
+  backend: codex
+  optimizer: gpt-5.5
+  target: gpt-5.5
+  optimizer_backend: openai_chat
+  target_backend: codex_exec
+  reasoning_effort: medium
+  codex_exec_sandbox: workspace-write
+  codex_exec_full_auto: false
+  codex_exec_reasoning_effort: none
+  codex_exec_use_sdk: auto
+  codex_exec_network_access: false
+  codex_exec_web_search: false
+  codex_exec_approval_policy: never
+  codex_trace_to_optimizer: true
+
+train:
+  num_epochs: 2
+  train_size: 0
+  batch_size: 8
+  accumulation: 1
+  seed: 42
+
+gradient:
+  minibatch_size: 4
+  merge_batch_size: 4
+  analyst_workers: 1
+  failure_only: false
+
+optimizer:
+  learning_rate: 3
+  min_learning_rate: 1
+  lr_scheduler: cosine
+  skill_update_mode: patch
+  use_slow_update: false
+  use_meta_skill: false
+
+evaluation:
+  use_gate: true
+  sel_env_num: 24
+  test_env_num: 0
+  eval_test: false
+
+env:
+  name: shortage_analyze
+  skill_init: shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md
+  split_mode: split_dir
+  split_dir: shortage_analyze-opt/processed/shortage_analyze_split
+  data_path: ""
+  split_output_dir: ""
+  out_root: shortage_analyze-opt/train/outputs/shortage_analyze
+  workers: 1
+  exec_timeout: 300
+  max_completion_tokens: 4096
+  allow_test_labels: false
+  initial_skill_path: shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md
+  initial_script_path: shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py
+  script_cache_dir: ""
+  script_codegen_timeout: 900
+  script_codegen_model: gpt-5.5

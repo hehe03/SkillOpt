@@ -236,6 +236,16 @@ python .\tracesorter-rules\scripts\predict_skill.py `
 - 可以调整规则的 `weight`、`group`、`group_cap` 和条件。
 - 不要让 SkillOpt 修改本目录下的 Python 评估代码，先保持闭环稳定。
 
+### 自然语言 trace 分类 skill
+
+自然语言 trace 分类 skill 已移到独立目录：
+
+```text
+tracesorter-skill/
+```
+
+`tracesorter-rules/` 只保留 JSON 规则集、规则引擎和规则预测脚本，避免两条优化路线混在一起。
+
 ### 导入已有生成规则
 
 如果你已经有规则生成脚本产出的 JSON，例如 `{"rules": [...]}`，可以导入成待优化 skill：

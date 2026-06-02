@@ -1,0 +1,7 @@
+﻿{
+    "val_count":  8,
+    "test_count":  8,
+    "note":  "Quick split for running a short SkillOpt optimization pass. Test items remain unlabeled.",
+    "source_split":  "D:\\code\\github\\hehe03\\SkillOpt\\shortage_analyze-opt\\processed\\shortage_analyze_split",
+    "train_count":  8
+}

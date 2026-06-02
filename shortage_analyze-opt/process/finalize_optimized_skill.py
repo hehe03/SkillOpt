@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from collections.abc import Sequence
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SKILLOPT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SKILLOPT_OUTPUT = SKILLOPT_ROOT / "train" / "outputs" / "shortage_analyze"
+DEFAULT_BEST_SKILL = SKILLOPT_ROOT / "shortage_analyze-optimized" / "best" / "best_kill.md"
+DEFAULT_OUTPUT_SCRIPT = (
+    SKILLOPT_ROOT / "shortage_analyze-optimized" / "best" / "scripts" / "analyze_shortage.py"
+)
+DEFAULT_ORIGINAL_SCRIPT = SKILLOPT_ROOT / "shortage_analyze" / "scripts" / "analyze_shortage.py"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="将 SkillOpt 输出的 best_skill.md 落到 shortage_analyze-optimized/best，并生成对应快速预测脚本。"
+    )
+    parser.add_argument(
+        "--skillopt-output",
+        default=str(DEFAULT_SKILLOPT_OUTPUT),
+        help="SkillOpt 训练输出目录，目录下应包含 best_skill.md。",
+    )
+    parser.add_argument("--best-skill", default=str(DEFAULT_BEST_SKILL))
+    parser.add_argument("--output-script", default=str(DEFAULT_OUTPUT_SCRIPT))
+    parser.add_argument("--original-script", default=str(DEFAULT_ORIGINAL_SCRIPT))
+    parser.add_argument(
+        "--script-mode",
+        choices=("codex", "copy-original", "skip"),
+        default="codex",
+        help="codex=用 Agent CLI 从 best skill 生成脚本；copy-original=复制原始脚本作占位；skip=只落 best skill。",
+    )
+    parser.add_argument(
+        "--codex-bin",
+        default=os.environ.get("CODEX_CLI_BIN") or os.environ.get("CODEX_EXEC_PATH") or "",
+        help="Codex CLI 路径，留空时自动查找。",
+    )
+    parser.add_argument("--model", default=os.environ.get("CODEX_MODEL", "gpt-5.5"))
+    parser.add_argument("--timeout", type=int, default=900)
+    return parser
+
+
+def resolve_codex_cli(configured: str) -> str:
+    if configured:
+        return configured
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        candidate = Path(local_appdata) / "OpenAI" / "Codex" / "bin" / "codex.exe"
+        if candidate.exists():
+            return str(candidate)
+    return "codex"
+
+
+def extract_python_code(text: str) -> str:
+    match = re.search(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip() + "\n"
+    return text.strip() + "\n"
+
+
+def build_codegen_prompt(best_skill: str, original_script: str) -> str:
+    return f"""你要把一个优化后的欠料归因规则 Skill 文档转换为可运行 Python 脚本。
+
+要求：
+1. 只输出完整 Python 代码，不要解释。
+2. 脚本接口必须兼容原始脚本和评估脚本：
+   - `predict_labels(features: dict) -> list[str]`
+   - `format_prediction(labels: list[str]) -> str`
+   - 支持命令行 `--input-split`、`--input-excel`、`--output`、`--output-excel`、`--sheet`
+   - 对 Excel 输入新增 `L2分类结果` 列。
+3. 规则来源只能是“优化后的 Skill 文档”。不要读取 data.xlsx、测试集标签或训练数据。
+4. 保持标签顺序：网容异常、用量异常、补库异常、基线异常、计划参数异常、补库供应不及时、责任库房异常、替代交付异常。
+5. 无命中时输出 `- 未匹配到分支`，多个标签用 `、` 连接。
+6. 代码应稳健处理空值、数字转换、`d/h` 时间单位、字符串列表字段。
+
+## 优化后的 Skill 文档
+
+```markdown
+{best_skill}
+```
+
+## 原始脚本接口参考
+
+下面的原始脚本只作为接口和工程风格参考。规则逻辑应以优化后的 Skill 文档为准。
+
+```python
+{original_script}
+```
+"""
+
+
+def run_codex(prompt: str, *, codex_bin: str, model: str, timeout: int) -> str:
+    with tempfile.TemporaryDirectory(prefix="shortage_codegen_") as temp_dir:
+        output_path = Path(temp_dir) / "last_message.txt"
+        command = [
+            codex_bin,
+            "exec",
+            "--ephemeral",
+            "-c",
+            "approval_policy=\"never\"",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--cd",
+            str(PROJECT_ROOT),
+            "--model",
+            model,
+            "--output-last-message",
+            str(output_path),
+            "-",
+        ]
+        proc = subprocess.run(
+            command,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            encoding="utf-8",
+        )
+        last_message = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(detail[:4000] or f"codex exec failed with exit code {proc.returncode}")
+        return last_message or (proc.stdout or "").strip()
+
+
+def run(args: argparse.Namespace) -> None:
+    skillopt_output = Path(args.skillopt_output)
+    source_best = skillopt_output / "best_skill.md"
+    if not source_best.exists():
+        raise FileNotFoundError(f"找不到 SkillOpt best_skill.md: {source_best}")
+
+    best_skill_path = Path(args.best_skill)
+    output_script_path = Path(args.output_script)
+    best_skill_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_best, best_skill_path)
+    print(f"已复制优化后 skill: {source_best} -> {best_skill_path}")
+
+    if args.script_mode == "skip":
+        return
+
+    output_script_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.script_mode == "copy-original":
+        shutil.copy2(Path(args.original_script), output_script_path)
+        print(f"已复制原始脚本作为占位: {output_script_path}")
+        return
+
+    best_skill = best_skill_path.read_text(encoding="utf-8")
+    original_script = Path(args.original_script).read_text(encoding="utf-8")
+    prompt = build_codegen_prompt(best_skill, original_script)
+    codex_bin = resolve_codex_cli(args.codex_bin)
+    response = run_codex(prompt, codex_bin=codex_bin, model=args.model, timeout=args.timeout)
+    code = extract_python_code(response)
+    output_script_path.write_text(code, encoding="utf-8")
+    print(f"已生成优化规则脚本: {output_script_path}")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    run(args)
+
+
+if __name__ == "__main__":
+    SCRIPT_ARGS: list[str] = [
+        "--skillopt-output",
+        str(DEFAULT_SKILLOPT_OUTPUT),
+        "--best-skill",
+        str(DEFAULT_BEST_SKILL),
+        "--output-script",
+        str(DEFAULT_OUTPUT_SCRIPT),
+    ]
+
+    main()
+    # IDE 直接运行且需要默认参数时，可临时改为：
+    # main(SCRIPT_ARGS)
