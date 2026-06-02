@@ -2,6 +2,8 @@
 
 本目录把原始 `shortage_analyze` skill、SkillOpt 训练流程、训练前后处理流程分开，避免优化过程读取原始 Excel 或测试集标签。
 
+如果要交给新的 Agent harness（例如 Codex、opencode 或其它 Agent）继续运行，请先让它阅读 [`HARNESS_GUIDE.md`](HARNESS_GUIDE.md)。该文档包含必须遵守的数据边界、Agent 自带模型适配点、运行命令、进度检查和结果解释方式。
+
 ## 目录约定
 
 - `shortage_analyze/`：原始 skill，不修改。其 `references/rules.md` 和 `scripts/analyze_shortage.py` 是原始规则来源。
