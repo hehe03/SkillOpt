@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Sequence
 from pathlib import Path
+import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -15,20 +15,13 @@ for path in (PROJECT_ROOT, OPTS_ROOT, TRAIN_ROOT):
         sys.path.insert(0, text)
 
 
-def _argv_has_codex_exec_path() -> bool:
-    for arg in sys.argv[1:]:
-        if arg == "--codex_exec_path":
-            return True
-        if arg.startswith("model.codex_exec_path="):
-            return True
-        if arg.startswith("env.codex_exec_path="):
-            return True
-    return False
-
-
 def _patch_openai_chat_to_agent_harness() -> None:
     """Route optimizer-side OpenAI chat calls through the current Agent harness."""
-    if os.environ.get("SHORTAGE_ANALYZE_USE_CODEX_OPTIMIZER", "1").lower() in {"0", "false", "no"}:
+    enabled = os.environ.get(
+        "SHORTAGE_ANALYZE_USE_AGENT_OPTIMIZER",
+        os.environ.get("SHORTAGE_ANALYZE_USE_CODEX_OPTIMIZER", "1"),
+    )
+    if enabled.lower() in {"0", "false", "no"}:
         return
 
     optimizer_cwd = TRAIN_ROOT / "optimizer_workspace"
@@ -39,14 +32,6 @@ def _patch_openai_chat_to_agent_harness() -> None:
     from skillopt.model import azure_openai as openai_impl
     from skillopt.model import codex_backend
     from shortage_analyze_skillopt.harness_chat import describe_agent_backend, run_agent_chat
-
-    if not os.environ.get("SHORTAGE_ANALYZE_AGENT_COMMAND_JSON") and not os.environ.get("SHORTAGE_ANALYZE_AGENT_COMMAND"):
-        from shortage_analyze_skillopt.harness_chat import _resolve_codex_cli
-
-        codex_cli = _resolve_codex_cli()
-        os.environ.setdefault("CODEX_CLI_BIN", codex_cli)
-        if not _argv_has_codex_exec_path() and codex_cli != "codex":
-            sys.argv.extend(["--codex_exec_path", codex_cli])
 
     def build_prompt(system: str, user: str) -> str:
         return (
@@ -161,6 +146,67 @@ def _patch_openai_chat_to_agent_harness() -> None:
     )
 
 
+def _patch_agent_harness_config_aliases() -> None:
+    """Let this task's readable agent_harness config map to SkillOpt internals."""
+    import scripts.train as train_module
+    import skillopt.model.common as common
+
+    original_normalize = train_module.normalize_backend_name
+    original_default_model = train_module.default_model_for_backend
+    original_common_normalize = common.normalize_backend_name
+    original_common_default_model = common.default_model_for_backend
+
+    def normalize_backend_name(name: str | None) -> str:
+        normalized = str(name or "").strip().lower()
+        if normalized in {"agent_harness", "harness", "agent"}:
+            return "agent_harness"
+        return original_normalize(name)
+
+    def default_model_for_backend(backend: str | None) -> str:
+        normalized = str(backend or "").strip().lower()
+        if normalized in {"agent_harness", "harness", "agent"}:
+            return "harness-default"
+        return original_default_model(backend)
+
+    def common_normalize_backend_name(name: str | None) -> str:
+        normalized = str(name or "").strip().lower()
+        if normalized in {"agent_harness", "harness", "agent"}:
+            return "agent_harness"
+        return original_common_normalize(name)
+
+    def common_default_model_for_backend(backend: str | None) -> str:
+        normalized = str(backend or "").strip().lower()
+        if normalized in {"agent_harness", "harness", "agent"}:
+            return "harness-default"
+        return original_common_default_model(backend)
+
+    train_module.normalize_backend_name = normalize_backend_name
+    train_module.default_model_for_backend = default_model_for_backend
+    common.normalize_backend_name = common_normalize_backend_name
+    common.default_model_for_backend = common_default_model_for_backend
+
+
+def _patch_agent_harness_flat_config() -> None:
+    """Convert agent_harness fields after config loading but before Trainer sees them."""
+    import scripts.train as train_module
+
+    original_load_config = train_module.load_config
+
+    def load_config_with_agent_harness(args):
+        cfg = original_load_config(args)
+        for key in ("model_backend", "optimizer_backend", "target_backend"):
+            if str(cfg.get(key) or "").strip().lower() in {"agent_harness", "harness", "agent"}:
+                cfg[key] = "openai_chat"
+        for key in ("optimizer_model", "target_model"):
+            if str(cfg.get(key) or "").strip().lower() in {"", "harness-default", "agent_harness"}:
+                cfg[key] = "harness-default"
+        if str(cfg.get("script_codegen_model") or "").strip().lower() in {"", "harness-default", "agent_harness"}:
+            cfg["script_codegen_model"] = "harness-default"
+        return cfg
+
+    train_module.load_config = load_config_with_agent_harness
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     original_argv = sys.argv[:]
     if argv is not None:
@@ -170,6 +216,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         import scripts.train as train_module
         from shortage_analyze_skillopt.adapter import ShortageAnalyzeAdapter
+
+        _patch_agent_harness_config_aliases()
+        _patch_agent_harness_flat_config()
 
         original_register_builtins = train_module._register_builtins
 

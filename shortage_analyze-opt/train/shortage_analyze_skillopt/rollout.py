@@ -16,8 +16,8 @@ from shortage_analyze_skillopt.harness_chat import run_agent_chat
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SKILLOPT_ROOT = PROJECT_ROOT / "shortage_analyze-opt"
-DEFAULT_INITIAL_SKILL = SKILLOPT_ROOT / "shortage_analyze-optimized" / "init" / "initial_skill.md"
-DEFAULT_INITIAL_SCRIPT = SKILLOPT_ROOT / "shortage_analyze-optimized" / "init" / "analyze_shortage.py"
+DEFAULT_INITIAL_SKILL = SKILLOPT_ROOT / "shortage_analyze-init" / "initial_skill.md"
+DEFAULT_INITIAL_SCRIPT = SKILLOPT_ROOT / "shortage_analyze-init" / "analyze_shortage.py"
 NONE_LABEL = "- 未匹配到分支"
 
 
@@ -69,7 +69,7 @@ def _build_codegen_prompt(skill_content: str, reference_script: str) -> str:
 """
 
 
-def _run_codex_codegen(prompt: str, *, timeout: int, model: str) -> str:
+def _run_agent_codegen(prompt: str, *, timeout: int, model: str) -> str:
     return run_agent_chat(
         prompt,
         model=model,
@@ -131,7 +131,7 @@ def resolve_script_for_skill(
     prompt = _build_codegen_prompt(skill_content, reference_script)
     skill_path.write_text(skill_content, encoding="utf-8")
     prompt_path.write_text(prompt, encoding="utf-8")
-    response = _run_codex_codegen(prompt, timeout=codegen_timeout, model=codegen_model)
+    response = _run_agent_codegen(prompt, timeout=codegen_timeout, model=codegen_model)
     raw_path.write_text(response, encoding="utf-8")
     script_path.write_text(_extract_python_code(response), encoding="utf-8")
     _validate_predictor(script_path)
@@ -279,7 +279,7 @@ def run_batch(
     initial_skill_path = initial_skill_path or str(DEFAULT_INITIAL_SKILL)
     initial_script_path = initial_script_path or str(DEFAULT_INITIAL_SCRIPT)
     cache_dir = script_cache_dir or str(out_path.parents[1] / "generated_scripts")
-    codegen_model = script_codegen_model or os.environ.get("OPTIMIZER_DEPLOYMENT") or os.environ.get("CODEX_MODEL") or "gpt-5.5"
+    codegen_model = script_codegen_model or os.environ.get("SHORTAGE_ANALYZE_AGENT_MODEL") or "harness-default"
     script_path = resolve_script_for_skill(
         skill_content=skill_content,
         script_cache_dir=cache_dir,

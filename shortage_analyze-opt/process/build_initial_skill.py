@@ -8,7 +8,7 @@ from pathlib import Path
 SKILLOPT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ORIGINAL_SKILL = SKILLOPT_ROOT / "shortage_analyze" / "SKILL.md"
 DEFAULT_RULES = SKILLOPT_ROOT / "shortage_analyze" / "references" / "rules.md"
-DEFAULT_OUTPUT = SKILLOPT_ROOT / "shortage_analyze-optimized" / "init" / "initial_skill.md"
+DEFAULT_OUTPUT = SKILLOPT_ROOT / "shortage_analyze-init" / "initial_skill.md"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_initial_skill(original_skill: str, rules: str) -> str:
+def build_initial_skill(rules: str) -> str:
     return f"""---
 name: shortage-analyze-skillopt-baseline
 description: 用于 SkillOpt 优化的欠料归因规则文档。根据单行欠料分析数据判断 L2 分类标签，不调用外部脚本，不读取 Excel 或测试集标签。
@@ -60,15 +60,9 @@ description: 用于 SkillOpt 优化的欠料归因规则文档。根据单行欠
 
 ## 可优化规则
 
-下面是原始 skill 的详细业务规则。SkillOpt 可以在训练中修正、补充、澄清这些规则，但不能引入依赖测试集标签或外部文件的特例。
+下面是从原始规则文档中融合进来的详细业务规则。SkillOpt 可以在训练中修正、补充、澄清这些规则，但不能引入依赖测试集标签或外部文件的特例。
 
 {rules.strip()}
-
-## 原始 skill 摘要
-
-以下内容来自原始 `shortage_analyze/SKILL.md`，仅作为背景。执行本任务时不要调用其中提到的脚本，应该直接依据上面的规则判断。
-
-{original_skill.strip()}
 
 ## SkillOpt 优化边界
 
@@ -83,9 +77,9 @@ def run(args: argparse.Namespace) -> None:
     rules_path = Path(args.rules)
     output_path = Path(args.output)
 
-    original_skill = original_skill_path.read_text(encoding="utf-8")
+    original_skill_path.read_text(encoding="utf-8")
     rules = rules_path.read_text(encoding="utf-8")
-    initial_skill = build_initial_skill(original_skill, rules)
+    initial_skill = build_initial_skill(rules)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(initial_skill, encoding="utf-8")

@@ -1,33 +1,39 @@
 # 新 harness 接手指南
 
-本文档面向新的 Agent harness（例如 Codex、opencode 或其它支持调用自身大模型的 Agent）。目标是让新 harness 读完后知道如何使用本目录中的脚本继续优化 `shortage_analyze`，并避免误读原始数据或测试集标签。
+本文档面向新的 Agent harness，例如 Codex、opencode 或其它支持调用自身大模型的 Agent。读完后应能继续运行 `shortage_analyze` 的 SkillOpt 优化，并避免误读原始数据或测试集标签。
 
 ## 任务目标
 
-使用 SkillOpt 优化原始 skill：
+使用 SkillOpt 优化处理后的初始 skill：
+
+```text
+shortage_analyze-opt/shortage_analyze-init/initial_skill.md
+```
+
+原始目录：
 
 ```text
 shortage_analyze-opt/shortage_analyze
 ```
 
-原始 skill 是基于规则的多标签分类任务。每个样本可能命中多个 L2 标签，例如：
+只作为 process 阶段构建初始 skill 和比较优化前后效果的来源，不参与训练过程，不要修改。
+
+优化完成后的 skill 和脚本放在：
 
 ```text
-用量异常、基线异常、补库供应不及时
+shortage_analyze-opt/shortage_analyze-optimized/best/best_kill.md
+shortage_analyze-opt/shortage_analyze-optimized/best/scripts/analyze_shortage.py
 ```
-
-训练 gate 的主指标仍是样本级 accuracy：预测标签集合必须与 gold 标签集合完全一致才算正确。优化反思阶段会额外使用 `missing_labels`、`extra_labels` 和逐标签 TP/FN/FP 细节，帮助分析单个标签规则。
 
 ## 必须遵守的边界
 
 1. 不要修改 `shortage_analyze-opt/shortage_analyze/`。
-   这是原始 skill，包含原始 `SKILL.md`、`references/rules.md` 和 `scripts/analyze_shortage.py`。
+2. `shortage_analyze-opt/train` 只能读取 `shortage_analyze-opt/processed` 和 `shortage_analyze-opt/shortage_analyze-init`。
+3. 训练过程不能读取 `data.xlsx`、原始全量数据、测试集标签或 `shortage_analyze/references`。
+4. 可以读取原始数据的脚本只放在 `shortage_analyze-opt/process`，例如数据预处理和训练后测试集比较。
+5. target skill 执行不要逐样本调用 LLM。当前机制是先生成或复用 Python 规则脚本，再用脚本批量预测。
 
-2. 训练流程不能读取原始 Excel。
-   `shortage_analyze-opt/train` 只能读取 `shortage_analyze-opt/processed` 中已经处理好的 split，以及 `shortage_analyze-optimized/init` 中的初始 skill/脚本。
-
-3. 优化过程不能读取测试集标签。
-   `train/configs/default.yaml` 中应保持：
+默认训练配置必须保持：
 
 ```yaml
 evaluation:
@@ -36,29 +42,25 @@ evaluation:
 env:
   data_path: ""
   allow_test_labels: false
+  skill_init: shortage_analyze-opt/shortage_analyze-init/initial_skill.md
+  initial_skill_path: shortage_analyze-opt/shortage_analyze-init/initial_skill.md
+  initial_script_path: shortage_analyze-opt/shortage_analyze-init/analyze_shortage.py
 ```
 
-4. 可以读取原始数据的代码只放在 `shortage_analyze-opt/process`。
-   数据预处理、训练后测试集准确率比较、最终导出都属于 process 阶段，不属于 train 阶段。
-
-5. 执行 target skill 时不要逐样本调用 LLM。
-   当前机制是先生成或复用 Python 规则脚本，再用脚本执行预测。
-
-## 接手后先阅读这些文件
-
-新 harness 开始执行前，先阅读：
+## 先阅读的文件
 
 ```text
 shortage_analyze-opt/README.md
 shortage_analyze-opt/HARNESS_GUIDE.md
 shortage_analyze-opt/train/configs/default.yaml
 shortage_analyze-opt/train/train_shortage_analyze.py
+shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
 shortage_analyze-opt/train/shortage_analyze_skillopt/adapter.py
 shortage_analyze-opt/train/shortage_analyze_skillopt/rollout.py
 shortage_analyze-opt/train/shortage_analyze_skillopt/dataloader.py
 shortage_analyze-opt/train/shortage_analyze_skillopt/evaluator.py
-shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md
-shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py
+shortage_analyze-opt/shortage_analyze-init/initial_skill.md
+shortage_analyze-opt/shortage_analyze-init/analyze_shortage.py
 ```
 
 重点确认：
@@ -72,22 +74,22 @@ shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py
 
 ```text
 shortage_analyze-opt/
-  shortage_analyze/                  # 原始 skill，不修改
-  process/                           # 可读取原始数据的数据处理/评估/导出脚本
+  shortage_analyze/                  # 原始 skill，不修改，不作为训练输入
+  shortage_analyze-init/             # 处理后的初始 SkillOpt skill
+    initial_skill.md
+    analyze_shortage.py
+  shortage_analyze-optimized/        # 训练后导出的优化产物
+    best/
+      best_kill.md
+      scripts/analyze_shortage.py
+  process/                           # 可读取原始数据的预处理/评估/导出脚本
   processed/                         # 已处理 split 和评估输出
   train/                             # SkillOpt 训练入口和 adapter
-  shortage_analyze-optimized/
-    init/
-      initial_skill.md               # SkillOpt 初始规则文档
-      analyze_shortage.py            # 初始规则对应的快速预测脚本
-    best/
-      best_kill.md                   # 训练后导出的最优 skill
-      scripts/analyze_shortage.py    # 训练后导出的最优规则脚本
 ```
 
 ## 数据处理
 
-如果 processed split 尚未生成，运行：
+如果 processed split 尚未生成：
 
 ```powershell
 $env:PYTHONUTF8 = "1"
@@ -95,13 +97,13 @@ $env:PYTHONIOENCODING = "utf-8"
 conda run -n llm python shortage_analyze-opt/process/prepare_skillopt_data.py
 ```
 
-该脚本默认读取：
+默认读取：
 
 ```text
 D:\code\github\hehe03\data.xlsx
 ```
 
-并输出：
+默认输出：
 
 ```text
 shortage_analyze-opt/processed/shortage_analyze_split/
@@ -111,17 +113,17 @@ shortage_analyze-opt/processed/shortage_analyze_split/
   split_manifest.json
 ```
 
-注意：`test/items.json` 在默认训练配置中不带标签，训练阶段也不会读取 test labels。
+`test/items.json` 在默认训练配置中不带可用于优化的测试标签。
 
-## 生成初始 SkillOpt skill
+## 构建初始 SkillOpt skill
 
-如果 `initial_skill.md` 不存在或需要重建，运行：
+如果 `shortage_analyze-init/initial_skill.md` 不存在或需要重建：
 
 ```powershell
 conda run -n llm python shortage_analyze-opt/process/build_initial_skill.py
 ```
 
-该脚本只读取：
+该脚本属于 process 阶段，会读取：
 
 ```text
 shortage_analyze-opt/shortage_analyze/SKILL.md
@@ -131,63 +133,69 @@ shortage_analyze-opt/shortage_analyze/references/rules.md
 输出：
 
 ```text
-shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md
+shortage_analyze-opt/shortage_analyze-init/initial_skill.md
 ```
 
-## 运行优化
+注意：训练阶段不再读取 `shortage_analyze-opt/shortage_analyze`。
 
-正式运行前建议使用新的 `out_root`，不要复用旧目录：
-
-```powershell
-$env:PYTHONUTF8 = "1"
-$env:PYTHONIOENCODING = "utf-8"
-conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
-  --config shortage_analyze-opt/train/configs/default.yaml `
-  --cfg-options env.out_root=shortage_analyze-opt/train/outputs/shortage_analyze_<harness_name>_v1
-```
-
-示例：
-
-```powershell
-conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
-  --config shortage_analyze-opt/train/configs/default.yaml `
-  --cfg-options env.out_root=shortage_analyze-opt/train/outputs/shortage_analyze_opencode_v1
-```
-
-短实验可以覆盖 epoch 或 batch 配置，例如只跑较少 step；如果要手动停在某一步，必须等该 step 已写入 `history.json` 后再停止训练进程。
-
-## Agent 自带模型的使用方式
+## 使用 Agent 自带模型
 
 默认配置使用：
 
 ```yaml
 model:
-  backend: codex
-  optimizer_backend: openai_chat
-  target_backend: codex_exec
+  backend: agent_harness
+  optimizer: harness-default
+  target: harness-default
+  optimizer_backend: agent_harness
+  target_backend: agent_harness
 ```
 
-在本任务中，“使用 Agent 自带大模型”的含义是：
+含义：
 
-- SkillOpt 优化器侧的 LLM 调用由当前 Agent/harness 处理。
-- target skill 预测阶段不逐样本调用 LLM。
-- 只有当某个 skill 版本没有对应 Python 脚本时，才调用当前 Agent/harness 的模型生成一次脚本。
+- `agent_harness` 表示 LLM 调用交给当前 Agent/harness，而不是 OpenAI、Azure 或固定 Codex 后端。
+- `harness-default` 表示使用当前 harness 默认模型。
+- `train_shortage_analyze.py` 会在运行时把这些占位值转换为 SkillOpt 内部兼容字段，并用 `run_agent_chat(...)` 接管实际 LLM 调用。
+- 新 harness 不需要因为配置中出现 SkillOpt 内部兼容值而额外配置 LLM key。
 
-当前代码通过统一适配层调用 Agent 模型：
+统一入口：
 
 ```text
 shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
+run_agent_chat(...)
 ```
 
-默认情况下，它会尝试使用 Codex CLI；如果当前 harness 没有 Codex CLI，应配置下面两个环境变量之一。
+自动路由顺序：
 
-### 推荐：JSON 命令数组
+1. 如果配置了 `SHORTAGE_ANALYZE_AGENT_COMMAND_JSON` 或 `SHORTAGE_ANALYZE_AGENT_COMMAND`，使用自定义 harness 命令。
+2. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=opencode`，使用 opencode CLI。
+3. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=codex`，使用 Codex CLI。
+4. 如果未设置或为 `auto`，先检测 opencode，再检测 Codex。
+5. 如果都不可用，直接报错并提示配置方式，不应卡在 Codex CLI。
+
+### opencode
+
+```powershell
+$env:SHORTAGE_ANALYZE_AGENT_BACKEND = "opencode"
+```
+
+如果 opencode 不在 PATH：
+
+```powershell
+$env:OPENCODE_CLI_BIN = "C:\path\to\opencode.cmd"
+```
+
+Windows 下会优先检测 `opencode.cmd`，然后是 `opencode.exe` 和 `opencode`。
+
+### 自定义 harness 命令
+
+推荐 JSON 命令数组：
 
 ```powershell
 $env:SHORTAGE_ANALYZE_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--model", "{model}", "--prompt-file", "{prompt_file}", "--output-file", "{output_file}"]'
 ```
 
-### 备选：shell 命令模板
+备选 shell 模板：
 
 ```powershell
 $env:SHORTAGE_ANALYZE_AGENT_COMMAND = '<harness-cli> <subcommand> --model "{model}" --prompt-file "{prompt_file}" --output-file "{output_file}"'
@@ -197,47 +205,36 @@ $env:SHORTAGE_ANALYZE_AGENT_COMMAND = '<harness-cli> <subcommand> --model "{mode
 
 - `{prompt_file}`：包含完整 prompt 的 UTF-8 文本文件。
 - `{output_file}`：harness 应写入最终回答的 UTF-8 文本文件。
-- `{model}`：当前配置中的模型名，例如 `gpt-5.5`。
-- `{stage}`：调用阶段，例如 `optimizer`、`target`、`custom`、`script_codegen`。
+- `{model}`：当前配置中的模型名，默认是 `harness-default`。
+- `{stage}`：调用阶段，例如 `optimizer`、`target`、`script_codegen`。
 - `{cwd}`：建议工作目录。
 
-命令也可以忽略 `{prompt_file}` 和 `{output_file}`，直接从 stdin 读取 prompt，并把最终回答写到 stdout。若同时写了 `{output_file}`，训练代码会优先读取该文件。
+## 运行优化
 
-适配后的两类调用都会走这个入口：
-
-- reflect/optimizer 阶段：SkillOpt 根据 rollout 结果生成 patch。
-- script codegen 阶段：根据候选 skill 生成 `analyze_shortage.py`。
-
-如果当前 harness 是 Codex，也可以不配置上面的变量，而是设置 Codex CLI 路径：
+正式运行前建议指定新的 `out_root`，不要复用旧输出目录：
 
 ```powershell
-$env:CODEX_CLI_BIN = "C:\path\to\codex.exe"
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
+  --config shortage_analyze-opt/train/configs/default.yaml `
+  --cfg-options env.out_root=shortage_analyze-opt/train/outputs/shortage_analyze_<harness_name>_v1
 ```
 
-相关代码位置：
-
-```text
-shortage_analyze-opt/train/shortage_analyze_skillopt/adapter.py
-shortage_analyze-opt/train/shortage_analyze_skillopt/rollout.py
-shortage_analyze-opt/train/train_shortage_analyze.py
-shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
-```
-
-如果新 harness 不是 Codex，不要改变“先生成脚本，再程序执行预测”的机制；只需要配置上述 harness 命令，或在 `harness_chat.py` 中扩展当前 harness 的调用方式。
+短实验可以覆盖 epoch 或 batch 配置。如果要手动停在某一步，必须等该 step 写入 `history.json` 后再停止训练进程。
 
 ## target 执行机制
 
-训练期间 target 预测流程如下：
+训练期间 target 预测流程：
 
 1. 初始 skill 使用：
 
 ```text
-shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py
+shortage_analyze-opt/shortage_analyze-init/analyze_shortage.py
 ```
 
 2. 每个候选 skill 根据 skill 内容计算 hash。
-
-3. 如果该 hash 没有缓存脚本，则调用 Agent 自身模型生成：
+3. 如果该 hash 没有缓存脚本，则调用当前 Agent harness 生成：
 
 ```text
 <out_root>/generated_scripts/<skill_hash>/analyze_shortage.py
@@ -252,7 +249,7 @@ format_prediction(labels)
 
 5. 预测结果写入 rollout 目录，供 SkillOpt 反思和 gate 使用。
 
-判断机制是否正确生效，可以看 `results.jsonl` 中是否包含：
+判断机制是否生效，可以看 `results.jsonl` 中是否包含：
 
 ```json
 {
@@ -261,9 +258,9 @@ format_prediction(labels)
 }
 ```
 
-如果看到逐样本 LLM 对话或长时间每条样本都调用模型，说明机制被破坏，需要先修复再继续训练。
+如果看到逐样本 LLM 对话或每条样本都调用模型，说明机制被破坏，应先修复再继续训练。
 
-## 如何查看进度
+## 查看进度
 
 假设输出目录是：
 
@@ -277,17 +274,6 @@ shortage_analyze-opt/train/outputs/shortage_analyze_opencode_v1
 Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\runtime_state.json -Encoding UTF8
 ```
 
-核心字段：
-
-```json
-{
-  "last_completed_step": 2,
-  "current_score": 0.7083333333333334,
-  "best_score": 0.7083333333333334,
-  "best_step": 0
-}
-```
-
 查看每步结果：
 
 ```powershell
@@ -298,13 +284,13 @@ Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\hi
 
 - `rollout_hard`：当前 batch 上当前 skill 的样本级 accuracy。
 - `n_patches`：本步反思得到的 patch 数。
-- `candidate_hash`：候选 skill 的 hash，也是候选脚本缓存目录名。
+- `candidate_hash`：候选 skill hash，也是候选脚本缓存目录名。
 - `selection_hard`：候选 skill 在 selection set 上的 accuracy。
 - `action`：`accept`、`reject` 或 `skip_no_patches`。
 - `best_score`：当前最优 selection accuracy。
 - `best_step`：当前最优 skill 来自哪一步。
 
-查看是否结束：
+检查是否结束：
 
 ```powershell
 Test-Path .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\summary.json
@@ -312,32 +298,9 @@ Test-Path .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\summ
 
 `summary.json` 存在且训练进程已退出，表示完整 run 结束。
 
-查看训练进程：
-
-```powershell
-Get-CimInstance Win32_Process |
-  Where-Object { $_.CommandLine -like '*shortage_analyze_opencode_v1*' } |
-  Select-Object ProcessId,Name,CommandLine
-```
-
-## 如何解释结果
-
-完整 run 结束后看：
-
-```text
-<out_root>/summary.json
-<out_root>/history.json
-<out_root>/runtime_state.json
-<out_root>/best_skill.md
-```
-
-如果某一轮 `selection_hard` 低于当前 `current_score`，SkillOpt 会 `reject`，最优 skill 不会更新。这是正常行为。
-
-如果 `best_step = 0`，表示没有任何候选超过初始 skill，最终 best 仍为初始 skill。
-
 ## 导出优化结果
 
-完整训练结束后，将 best skill 和对应脚本落地：
+训练结束后：
 
 ```powershell
 conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py `
@@ -382,24 +345,24 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 
 ## 推荐给新 harness 的启动提示
 
-可以直接把下面这段发给新 harness：
-
 ```text
-请在 D:\code\github\hehe03\SkillOpt 仓库中优化 shortage_analyze-opt/shortage_analyze。
+请在 D:\code\github\hehe03\SkillOpt 仓库中继续优化 shortage_analyze。
 
 开始前请完整阅读：
 - shortage_analyze-opt/HARNESS_GUIDE.md
 - shortage_analyze-opt/README.md
 - shortage_analyze-opt/train/configs/default.yaml
+- shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
 - shortage_analyze-opt/train/shortage_analyze_skillopt/adapter.py
 - shortage_analyze-opt/train/shortage_analyze_skillopt/rollout.py
 
 要求：
 1. 不要修改 shortage_analyze-opt/shortage_analyze。
-2. 训练流程不能读取 data.xlsx，不能读取测试集标签。
-3. 使用 SkillOpt 优化。
-4. 使用当前 harness 自带大模型，不额外配置 LLM key。如果当前 harness 没有 Codex CLI，请设置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON 或 SHORTAGE_ANALYZE_AGENT_COMMAND，让 train/shortage_analyze_skillopt/harness_chat.py 能调用当前 harness 的模型。
-5. target 执行必须先生成/复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
-6. 使用新的 out_root，不要复用旧输出目录。
-7. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
+2. 训练从 shortage_analyze-opt/shortage_analyze-init/initial_skill.md 开始。
+3. 训练流程不能读取 data.xlsx、原始全量数据、测试集标签、shortage_analyze/references 或 shortage_analyze/scripts。
+4. 使用 SkillOpt 优化。
+5. 使用当前 harness 自带大模型，不额外配置 LLM key。所有训练中的 LLM 调用必须经过 train/shortage_analyze_skillopt/harness_chat.py 的 run_agent_chat(...)。
+6. target 执行必须先生成或复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
+7. 使用新的 out_root，不要复用旧输出目录。
+8. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
 ```
