@@ -4,8 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="a5c843f2-0183-48d9-855c-dfedf2cff644" name="更改" comment="数据集划分">
-      <change beforePath="$PROJECT_DIR$/tracesorter-rules/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/tracesorter-rules/README.md" afterDir="false" />
+    <list default="true" id="a5c843f2-0183-48d9-855c-dfedf2cff644" name="更改" comment="harness chat模式更新">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/eval/test_accuracy_compare.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/eval/test_predictions.jsonl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/shortage_analyze_split_quick/split_manifest.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/shortage_analyze_split_quick/test/items.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/shortage_analyze_split_quick/train/items.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/processed/shortage_analyze_split_quick/val/items.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py" beforeDir="false" afterPath="$PROJECT_DIR$/shortage_analyze-opt/shortage_analyze-optimized/init/analyze_shortage.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md" beforeDir="false" afterPath="$PROJECT_DIR$/shortage_analyze-opt/shortage_analyze-optimized/init/initial_skill.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -188,13 +196,39 @@
       <option name="project" value="LOCAL" />
       <updated>1780128506701</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="缺料归因skillOpt">
+      <option name="closed" value="true" />
+      <created>1780365526765</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1780365526765</updated>
+    </task>
+    <task id="LOCAL-00008" summary="缺料归因skillOpt">
+      <option name="closed" value="true" />
+      <created>1780367020938</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1780367020938</updated>
+    </task>
+    <task id="LOCAL-00009" summary="harness chat模式更新">
+      <option name="closed" value="true" />
+      <created>1780368577769</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1780368577769</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="first" />
     <MESSAGE value="增加组内封顶标签" />
     <MESSAGE value="数据集划分" />
-    <option name="LAST_COMMIT_MESSAGE" value="数据集划分" />
+    <MESSAGE value="缺料归因skillOpt" />
+    <MESSAGE value="harness chat模式更新" />
+    <option name="LAST_COMMIT_MESSAGE" value="harness chat模式更新" />
   </component>
 </project>

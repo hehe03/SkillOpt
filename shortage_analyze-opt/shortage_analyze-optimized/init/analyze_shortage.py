@@ -1,348 +1,285 @@
 #!/usr/bin/env python3
-"""
-欠料归因分析脚本
+from __future__ import annotations
 
-功能：
-1. 读取欠料原始Excel数据
-2. 根据业务规则对每一行数据进行L2分类
-3. 输出带分类标签的新Excel文件
-
-使用方法：
-    python analyze_shortage.py <input_excel_path> [output_excel_path]
-
-注意：
-- 本脚本严格按照AI逻辑规则实现
-- 如果验证数据发现准确率问题，请检查示例数据是否存在不一致
-- 已知问题：部分规则与示例数据的answer列存在差异，可能是数据标注问题
-"""
-
-import sys
+import argparse
+import json
+import math
 import re
-import pandas as pd
-import numpy as np
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+NONE_LABEL = "- 未匹配到分支"
+LABEL_ORDER = ["网容异常", "用量异常", "补库异常", "基线异常", "计划参数异常", "补库供应不及时", "责任库房异常", "替代交付异常"]
+EMPTY_STRINGS = {"", "none", "null", "nan", "n/a", "na", "(空)"}
 
 
-def parse_duration(value):
-    """
-    解析时间字符串为数值（统一转换为天数）
+def is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    return isinstance(value, str) and value.strip().lower() in EMPTY_STRINGS
 
-    支持格式：
-    - "62.87d" -> 62.87 (天)
-    - "8.94h" -> 0.3725 (天，小时转天)
-    - "0d" -> 0
-    - NaN -> NaN
-    """
-    if pd.isna(value):
-        return np.nan
 
-    value_str = str(value).strip()
-
-    # 匹配数字+单位格式
-    match = re.match(r'^([\d.]+)\s*([dh])$', value_str, re.IGNORECASE)
-    if match:
-        num = float(match.group(1))
-        unit = match.group(2).lower()
-        if unit == 'h':
-            return num / 24  # 小时转天
-        return num  # 天
-
-    # 尝试直接转换为数值
+def to_number(value: Any) -> float | None:
+    if is_empty(value):
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        value = float(value)
+        return None if math.isnan(value) else value
     try:
-        return float(value_str)
+        value = float(str(value).strip().replace(",", ""))
     except ValueError:
-        return np.nan
+        return None
+    return None if math.isnan(value) else value
 
 
-def safe_compare(val1, val2, operator='>'):
-    """
-    安全比较两个数值，处理NaN情况
+def parse_duration_days(value: Any) -> float | None:
+    if is_empty(value):
+        return None
+    if isinstance(value, (int, float)):
+        return to_number(value)
+    text = str(value).strip().replace(",", "")
+    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s*([dhDH])?", text)
+    if not match:
+        return to_number(value)
+    number = float(match.group(1))
+    return number / 24.0 if (match.group(2) or "d").lower() == "h" else number
 
-    Args:
-        val1: 第一个值
-        val2: 第二个值
-        operator: 比较操作符 ('>', '<', '>=', '<=', '==')
 
-    Returns:
-        bool: 比较结果，如果任一值为NaN则返回False
-    """
-    if pd.isna(val1) or pd.isna(val2):
+def safe_compare(left: Any, right: Any, operator: str) -> bool:
+    left_num = to_number(left)
+    right_num = to_number(right)
+    if left_num is None or right_num is None:
         return False
+    return {
+        ">": left_num > right_num,
+        "<": left_num < right_num,
+        ">=": left_num >= right_num,
+        "<=": left_num <= right_num,
+        "==": left_num == right_num,
+    }[operator]
 
-    try:
-        val1 = float(val1)
-        val2 = float(val2)
-    except (ValueError, TypeError):
+
+def duration_compare(left: Any, right: Any, operator: str) -> bool:
+    left_days = parse_duration_days(left)
+    right_days = parse_duration_days(right)
+    if left_days is None or right_days is None:
         return False
-
-    if operator == '>':
-        return val1 > val2
-    elif operator == '<':
-        return val1 < val2
-    elif operator == '>=':
-        return val1 >= val2
-    elif operator == '<=':
-        return val1 <= val2
-    elif operator == '==':
-        return val1 == val2
-
-    return False
+    return safe_compare(left_days, right_days, operator)
 
 
-def check_网容异常(row):
-    """
-    网容异常判断
-    条件1: 网容大于0
-    匹配度: 若条件1不满足，匹配度为1；否则为0
-    即: 网容 <= 0 或为空 -> 匹配
-    """
-    网容 = row.get('网容')
-    if pd.isna(网容):
-        return True  # 空值视为不满足条件1，即匹配
-    return float(网容) <= 0
+def get_field(row: Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in row and not is_empty(row[name]):
+            return row[name]
+    for name in names:
+        if name in row:
+            return row[name]
+    return None
 
 
-def check_用量异常(row):
-    """
-    用量异常判断
-    条件1: M2超过M3-M13最大值
-    条件2: 历史交易数量超过原始基线
-    匹配度: 若条件1或条件2完全满足，匹配度为1；否则为0
-    """
-    M2 = row.get('M2')
-    M3_M13最大值 = row.get('M3-M13最大值')
-    历史交易数量 = row.get('历史交易数量')
-    原始基线 = row.get('原始基线')
-
-    条件1 = safe_compare(M2, M3_M13最大值, '>')
-    条件2 = safe_compare(历史交易数量, 原始基线, '>')
-
-    return 条件1 or 条件2
-
-
-def check_补库异常(row):
-    """
-    补库异常判断
-    条件1: 历史交易数量超过补库提前期补库和调拨汇总数量
-    匹配度: 若条件1完全满足，匹配度为1；否则为0
-    """
-    历史交易数量 = row.get('历史交易数量')
-    补库提前期补库和调拨汇总数量 = row.get('补库提前期补库和调拨汇总数量')
-
-    return safe_compare(历史交易数量, 补库提前期补库和调拨汇总数量, '>')
-
-
-def check_基线异常(row):
-    """
-    基线异常判断
-    条件1: 修改基线ROP小于推荐基线
-    条件2: 历史交易数量超过原始基线
-    条件3: 原始基线=0 且 历史交易数量=0 且 网容>0（基线设置问题）
-    匹配度: 若条件1或条件2或条件3完全满足，匹配度为1；否则为0
-    """
-    修改基线ROP = row.get('修改基线ROP')
-    推荐基线 = row.get('推荐基线')
-    历史交易数量 = row.get('历史交易数量')
-    原始基线 = row.get('原始基线')
-    网容 = row.get('网容')
-
-    条件1 = safe_compare(修改基线ROP, 推荐基线, '<')
-    条件2 = safe_compare(历史交易数量, 原始基线, '>')
-
-    # 条件3: 原始基线=0 且 历史交易数量=0 且 网容>0
-    # 这表示有库存(网容>0)但基线设置为0，说明基线配置有问题
-    条件3 = False
-    if safe_compare(原始基线, 0, '==') and safe_compare(历史交易数量, 0, '=='):
-        if pd.notna(网容) and float(网容) > 0:
-            条件3 = True
-
-    return 条件1 or 条件2 or 条件3
-
-
-def check_计划参数异常(row):
-    """
-    计划参数异常判断
-    条件1: 最终补库提前期小于计算补库提前期
-    匹配度: 若条件1完全满足，匹配度为1；否则为0
-    """
-    最终补库提前期 = row.get('最终补库提前期')
-    计算补库提前期 = row.get('计算补库提前期')
-
-    return safe_compare(最终补库提前期, 计算补库提前期, '<')
-
-
-def check_补库供应不及时(row):
-    """
-    补库供应不及时判断
-    条件1: 补库在途时间超过最终补库提前期
-    条件2: 调拨在途时间超过最终补库提前期
-    匹配度: 若条件1或条件2完全满足，匹配度为1；否则为0
-    """
-    补库在途时间_raw = row.get('补库在途时间')
-    调拨在途时间_raw = row.get('调拨在途时间')
-    最终补库提前期 = row.get('最终补库提前期')
-
-    补库在途时间 = parse_duration(补库在途时间_raw)
-    调拨在途时间 = parse_duration(调拨在途时间_raw)
-
-    # 最终补库提前期是天数，直接使用
-    条件1 = safe_compare(补库在途时间, 最终补库提前期, '>')
-    条件2 = safe_compare(调拨在途时间, 最终补库提前期, '>')
-
-    return 条件1 or 条件2
-
-
-def check_责任库房异常(row):
-    """
-    责任库房异常判断
-    条件1: 责任库房预测物流时长超过SLA承诺时间
-    匹配度: 若条件1完全满足，匹配度为1；否则为0
-    """
-    责任库房预测物流时长_raw = row.get('责任库房预测物流时长')
-    SLA承诺时间_raw = row.get('SLA承诺时间')
-
-    责任库房预测物流时长 = parse_duration(责任库房预测物流时长_raw)
-    SLA承诺时间 = parse_duration(SLA承诺时间_raw)
-
-    # 两者都转换为天数进行比较
-    return safe_compare(责任库房预测物流时长, SLA承诺时间, '>')
-
-
-def check_替代交付异常(row):
-    """
-    替代交付异常判断
-    条件1: 单一替代库存汇总小于总欠料数量
-    条件2: 组合替代关系非空 且 (组合替代库存汇总为空/nan 或 无法满足需求)
-    匹配度: 若条件1且条件2完全满足，匹配度为1；否则为0
-
-    注意：当组合替代关系为空[]时，表示没有替代方案，不标记为替代交付异常
-    """
-    单一替代库存汇总 = row.get('单一替代库存汇总')
-    总欠料数量 = row.get('总欠料数量')
-    组合替代关系 = row.get('组合替代关系')
-    组合替代库存汇总 = row.get('组合替代库存汇总')
-
-    条件1 = safe_compare(单一替代库存汇总, 总欠料数量, '<')
-
-    # 条件2: 组合替代关系非空 且 替代库存不足
-    if pd.isna(组合替代关系) or str(组合替代关系).strip() == '[]':
-        # 没有替代方案，不存在替代交付异常
-        条件2 = False
-    else:
-        # 有替代方案，检查库存是否充足
-        if pd.isna(组合替代库存汇总) or str(组合替代库存汇总).strip() == '[]':
-            条件2 = True  # 有替代方案但无库存数据
-        else:
-            # 简化处理：如果组合替代库存汇总有值，需要详细判断每个物品
-            # 这里简化为：如果存在组合替代库存数据，暂时认为库存充足
-            # 实际业务中应该逐个比较
-            条件2 = False
-
-    return 条件1 and 条件2
-
-
-def analyze_row(row):
-    """
-    分析单行数据，返回L2标签列表
-    """
-    labels = []
-
-    if check_网容异常(row):
-        labels.append('网容异常')
-    if check_用量异常(row):
-        labels.append('用量异常')
-    if check_补库异常(row):
-        labels.append('补库异常')
-    if check_基线异常(row):
-        labels.append('基线异常')
-    if check_计划参数异常(row):
-        labels.append('计划参数异常')
-    if check_补库供应不及时(row):
-        labels.append('补库供应不及时')
-    if check_责任库房异常(row):
-        labels.append('责任库房异常')
-    if check_替代交付异常(row):
-        labels.append('替代交付异常')
-
-    if not labels:
-        return '- 未匹配到分支'
-
-    return '、'.join(labels)
-
-
-LABEL_ORDER = [
-    '网容异常',
-    '用量异常',
-    '补库异常',
-    '基线异常',
-    '计划参数异常',
-    '补库供应不及时',
-    '责任库房异常',
-    '替代交付异常',
-]
-
-
-def predict_labels(features):
-    """返回命中的 L2 标签列表，供 SkillOpt 训练流程快速调用。"""
-    answer = analyze_row(pd.Series(features))
-    if not answer or answer == '- 未匹配到分支':
+def parse_list_like(value: Any) -> list[Any]:
+    if is_empty(value):
         return []
-    labels = [part.strip() for part in str(answer).replace(',', '、').replace('，', '、').split('、') if part.strip()]
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    text = str(value).strip()
+    if text == "[]" or text.lower() in EMPTY_STRINGS:
+        return []
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            inner = text[1:-1].strip()
+            return [inner] if inner else []
+        return parsed if isinstance(parsed, list) else [parsed]
+    return [text]
+
+
+def check_网容异常(row: Mapping[str, Any]) -> bool:
+    value = to_number(get_field(row, "网容"))
+    return value is None or value <= 0
+
+
+def check_用量异常(row: Mapping[str, Any]) -> bool:
+    return safe_compare(get_field(row, "M2"), get_field(row, "M3-M13最大值"), ">") or safe_compare(
+        get_field(row, "历史交易数量"), get_field(row, "原始基线"), ">"
+    )
+
+
+def check_补库异常(row: Mapping[str, Any]) -> bool:
+    return safe_compare(get_field(row, "历史交易数量"), get_field(row, "补库提前期补库和调拨汇总数量"), ">")
+
+
+def check_基线异常(row: Mapping[str, Any]) -> bool:
+    return (
+        safe_compare(get_field(row, "修改基线ROP"), get_field(row, "推荐基线"), "<")
+        or safe_compare(get_field(row, "历史交易数量"), get_field(row, "原始基线"), ">")
+        or (
+            safe_compare(get_field(row, "原始基线"), 0, "==")
+            and safe_compare(get_field(row, "历史交易数量"), 0, "==")
+            and safe_compare(get_field(row, "网容"), 0, ">")
+        )
+    )
+
+
+def check_计划参数异常(row: Mapping[str, Any]) -> bool:
+    return safe_compare(get_field(row, "最终补库提前期", "最终补库提前期.1"), get_field(row, "计算补库提前期"), "<")
+
+
+def check_补库供应不及时(row: Mapping[str, Any]) -> bool:
+    lead_time = get_field(row, "最终补库提前期", "最终补库提前期.1")
+    return duration_compare(get_field(row, "补库在途时间"), lead_time, ">") or duration_compare(get_field(row, "调拨在途时间"), lead_time, ">")
+
+
+def check_责任库房异常(row: Mapping[str, Any]) -> bool:
+    return duration_compare(get_field(row, "责任库房预测物流时长"), get_field(row, "SLA承诺时间"), ">")
+
+
+def check_替代交付异常(row: Mapping[str, Any]) -> bool:
+    single_stock = get_field(row, "单一替代库存汇总", "单一替代库存查询")
+    shortage_qty = get_field(row, "总欠料数量", "总欠料数量.1", "欠料数量")
+    relation = get_field(row, "组合替代关系", "组合替代关系.1")
+    combo_stock = get_field(row, "组合替代库存汇总", "组合替代库存")
+    combo_need = get_field(row, "组合替代需求数量")
+    condition1 = safe_compare(single_stock, shortage_qty, "<")
+    relation_items = parse_list_like(relation)
+    if not relation_items:
+        condition2 = False
+    elif is_empty(combo_stock):
+        condition2 = True
+    elif not is_empty(combo_need):
+        condition2 = safe_compare(combo_stock, combo_need, "<")
+    else:
+        condition2 = safe_compare(combo_stock, shortage_qty, "<")
+    return condition1 and condition2
+
+
+def predict_labels(features: Mapping[str, Any]) -> list[str]:
+    checks = [
+        ("网容异常", check_网容异常),
+        ("用量异常", check_用量异常),
+        ("补库异常", check_补库异常),
+        ("基线异常", check_基线异常),
+        ("计划参数异常", check_计划参数异常),
+        ("补库供应不及时", check_补库供应不及时),
+        ("责任库房异常", check_责任库房异常),
+        ("替代交付异常", check_替代交付异常),
+    ]
+    return [label for label, check in checks if check(features)]
+
+
+def format_prediction(labels: Sequence[str]) -> str:
     label_set = set(labels)
-    return [label for label in LABEL_ORDER if label in label_set]
+    ordered = [label for label in LABEL_ORDER if label in label_set]
+    return "、".join(ordered) if ordered else NONE_LABEL
 
 
-def format_prediction(labels):
-    """将标签列表格式化为最终答案字符串。"""
-    return '、'.join(labels) if labels else '- 未匹配到分支'
+def analyze_row(row: Mapping[str, Any]) -> str:
+    return format_prediction(predict_labels(row))
 
 
-def analyze_excel(input_path, output_path=None):
-    """
-    分析Excel文件
-
-    Args:
-        input_path: 输入Excel文件路径
-        output_path: 输出Excel文件路径，如不指定则自动生成
-
-    Returns:
-        输出文件路径
-    """
-    print(f"正在读取文件: {input_path}")
-
-    # 读取Excel
-    df = pd.read_excel(input_path)
-    print(f"读取完成，共 {len(df)} 行数据")
-
-    # 分析每一行
-    print("正在进行欠料归因分析...")
-    df['L2分类结果'] = df.apply(analyze_row, axis=1)
-
-    # 生成输出路径
-    if output_path is None:
-        input_file = Path(input_path)
-        output_path = input_file.parent / f"{input_file.stem}_归因分析结果.xlsx"
-
-    # 保存结果
-    df.to_excel(output_path, index=False)
-    print(f"分析完成，结果已保存至: {output_path}")
-
-    return str(output_path)
+def load_split_items(split_path: str | Path) -> list[dict[str, Any]]:
+    path = Path(split_path)
+    if path.is_dir():
+        path = path / "items.json"
+    with path.open("r", encoding="utf-8-sig") as f:
+        items = json.load(f)
+    if not isinstance(items, list):
+        raise ValueError(f"Split file must contain a JSON list: {path}")
+    return items
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("使用方法: python analyze_shortage.py <input_excel_path> [output_excel_path]")
-        print("\n示例:")
-        print("  python analyze_shortage.py 欠料数据.xlsx")
-        print("  python analyze_shortage.py 欠料数据.xlsx 输出结果.xlsx")
-        sys.exit(1)
+def analyze_split(split_path: str | Path, output: str | Path | None = None) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in load_split_items(split_path):
+        features = item.get("features")
+        if not isinstance(features, dict):
+            raise ValueError(f"Split item lacks features: {item!r}")
+        labels = predict_labels(features)
+        row = {
+            "id": item.get("id"),
+            "uid": item.get("uid", item.get("id")),
+            "row_index": item.get("row_index"),
+            "predicted_answer": format_prediction(labels),
+            "predicted_labels": labels,
+        }
+        if "ground_truth" in item:
+            row["ground_truth"] = item["ground_truth"]
+        results.append(row)
 
-    input_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else None
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if out_path.suffix.lower() == ".jsonl":
+            with out_path.open("w", encoding="utf-8") as f:
+                for row in results:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        else:
+            out_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    return results
 
-    analyze_excel(input_path, output_path)
+
+def analyze_excel(excel_path: str | Path, output_excel: str | Path | None = None, sheet: str | int | None = None) -> str:
+    kwargs: dict[str, Any] = {}
+    if sheet is not None:
+        kwargs["sheet_name"] = sheet
+    df = pd.read_excel(excel_path, **kwargs)
+    df["L2分类结果"] = [analyze_row(row.to_dict()) for _, row in df.iterrows()]
+    if output_excel is None:
+        path = Path(excel_path)
+        output_excel = path.parent / f"{path.stem}_归因分析结果.xlsx"
+    out_path = Path(output_excel)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_excel(out_path, index=False)
+    return str(out_path)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="欠料归因规则脚本，支持 Excel 宽表和 SkillOpt split items.json。")
+    parser.add_argument("excel", nargs="?", help="输入 Excel 路径；兼容原始脚本用法。")
+    parser.add_argument("excel_output", nargs="?", help="输出 Excel 路径；兼容原始脚本用法。")
+    parser.add_argument("--input-split", help="SkillOpt split 的 items.json 文件，或包含 items.json 的 split 目录。")
+    parser.add_argument("--output", help="split 预测结果输出路径，支持 .json 或 .jsonl。")
+    parser.add_argument("--input-excel", help="输入 Excel 路径；等价于位置参数 excel。")
+    parser.add_argument("--output-excel", help="输出 Excel 路径；等价于位置参数 excel_output。")
+    parser.add_argument("--sheet", default=None, help="Excel sheet 名称或序号；默认第一个 sheet。")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.input_split:
+        results = analyze_split(args.input_split, args.output)
+        if not args.output:
+            print(json.dumps(results, ensure_ascii=False, indent=2))
+        return
+
+    source_excel = args.input_excel or args.excel
+    if not source_excel:
+        parser.error("请提供 Excel 输入路径，或使用 --input-split 指定 SkillOpt split。")
+    sheet: str | int | None = args.sheet
+    if isinstance(sheet, str) and sheet.isdigit():
+        sheet = int(sheet)
+    print(analyze_excel(source_excel, args.output_excel or args.excel_output, sheet=sheet))
 
 
 if __name__ == "__main__":
+    SCRIPT_ARGS: list[str] = [
+        "--input-split",
+        "shortage_analyze-opt/processed/shortage_analyze_split/train/items.json",
+        "--output",
+        "shortage_analyze-opt/processed/eval/init_train_predictions.jsonl",
+    ]
     main()
+    # IDE 直接运行且需要默认参数时，可临时改为：
+    # main(SCRIPT_ARGS)
