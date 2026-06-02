@@ -6,13 +6,12 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from shortage_analyze_skillopt.evaluator import evaluate
+from shortage_analyze_skillopt.harness_chat import run_agent_chat
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -36,18 +35,6 @@ def _read_text_if_exists(path: str | os.PathLike[str]) -> str:
 def _same_skill_content(left: str, right_path: str | os.PathLike[str]) -> bool:
     right = _read_text_if_exists(right_path)
     return bool(right) and left.strip() == right
-
-
-def _resolve_codex_cli() -> str:
-    configured = os.environ.get("CODEX_CLI_BIN") or os.environ.get("CODEX_EXEC_PATH")
-    if configured:
-        return configured
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        candidate = Path(local_appdata) / "OpenAI" / "Codex" / "bin" / "codex.exe"
-        if candidate.exists():
-            return str(candidate)
-    return "codex"
 
 
 def _extract_python_code(text: str) -> str:
@@ -83,41 +70,14 @@ def _build_codegen_prompt(skill_content: str, reference_script: str) -> str:
 
 
 def _run_codex_codegen(prompt: str, *, timeout: int, model: str) -> str:
-    codex_bin = _resolve_codex_cli()
-    with tempfile.TemporaryDirectory(prefix="shortage_script_codegen_") as temp_dir:
-        output_path = Path(temp_dir) / "last_message.txt"
-        command = [
-            codex_bin,
-            "exec",
-            "--ephemeral",
-            "-c",
-            "approval_policy=\"never\"",
-            "--sandbox",
-            "read-only",
-            "--skip-git-repo-check",
-            "--cd",
-            str(PROJECT_ROOT),
-            "--model",
-            model,
-            "--output-last-message",
-            str(output_path),
-            "-",
-        ]
-        proc = subprocess.run(
-            command,
-            input=prompt,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-            encoding="utf-8",
-            errors="replace",
-        )
-        response = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(detail[:4000] or f"codex exec failed with exit code {proc.returncode}")
-        return response or (proc.stdout or "").strip()
+    return run_agent_chat(
+        prompt,
+        model=model,
+        timeout=timeout,
+        stage="script_codegen",
+        cwd=PROJECT_ROOT,
+        sandbox="read-only",
+    )
 
 
 def _load_module(path: Path):

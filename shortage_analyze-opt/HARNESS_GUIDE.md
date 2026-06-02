@@ -173,14 +173,57 @@ model:
 - target skill 预测阶段不逐样本调用 LLM。
 - 只有当某个 skill 版本没有对应 Python 脚本时，才调用当前 Agent/harness 的模型生成一次脚本。
 
-当前 Codex 实现中，相关适配点在：
+当前代码通过统一适配层调用 Agent 模型：
+
+```text
+shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
+```
+
+默认情况下，它会尝试使用 Codex CLI；如果当前 harness 没有 Codex CLI，应配置下面两个环境变量之一。
+
+### 推荐：JSON 命令数组
+
+```powershell
+$env:SHORTAGE_ANALYZE_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--model", "{model}", "--prompt-file", "{prompt_file}", "--output-file", "{output_file}"]'
+```
+
+### 备选：shell 命令模板
+
+```powershell
+$env:SHORTAGE_ANALYZE_AGENT_COMMAND = '<harness-cli> <subcommand> --model "{model}" --prompt-file "{prompt_file}" --output-file "{output_file}"'
+```
+
+可用占位符：
+
+- `{prompt_file}`：包含完整 prompt 的 UTF-8 文本文件。
+- `{output_file}`：harness 应写入最终回答的 UTF-8 文本文件。
+- `{model}`：当前配置中的模型名，例如 `gpt-5.5`。
+- `{stage}`：调用阶段，例如 `optimizer`、`target`、`custom`、`script_codegen`。
+- `{cwd}`：建议工作目录。
+
+命令也可以忽略 `{prompt_file}` 和 `{output_file}`，直接从 stdin 读取 prompt，并把最终回答写到 stdout。若同时写了 `{output_file}`，训练代码会优先读取该文件。
+
+适配后的两类调用都会走这个入口：
+
+- reflect/optimizer 阶段：SkillOpt 根据 rollout 结果生成 patch。
+- script codegen 阶段：根据候选 skill 生成 `analyze_shortage.py`。
+
+如果当前 harness 是 Codex，也可以不配置上面的变量，而是设置 Codex CLI 路径：
+
+```powershell
+$env:CODEX_CLI_BIN = "C:\path\to\codex.exe"
+```
+
+相关代码位置：
 
 ```text
 shortage_analyze-opt/train/shortage_analyze_skillopt/adapter.py
 shortage_analyze-opt/train/shortage_analyze_skillopt/rollout.py
+shortage_analyze-opt/train/train_shortage_analyze.py
+shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
 ```
 
-如果新 harness 不是 Codex，不要改变“先生成脚本，再程序执行预测”的机制；只替换调用 Agent 自身模型的命令适配层。尤其要检查 `rollout.py` 中候选脚本生成逻辑是否仍然能调用当前 harness。
+如果新 harness 不是 Codex，不要改变“先生成脚本，再程序执行预测”的机制；只需要配置上述 harness 命令，或在 `harness_chat.py` 中扩展当前 harness 的调用方式。
 
 ## target 执行机制
 
@@ -355,7 +398,7 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 1. 不要修改 shortage_analyze-opt/shortage_analyze。
 2. 训练流程不能读取 data.xlsx，不能读取测试集标签。
 3. 使用 SkillOpt 优化。
-4. 使用当前 harness 自带大模型，不额外配置 LLM key。
+4. 使用当前 harness 自带大模型，不额外配置 LLM key。如果当前 harness 没有 Codex CLI，请设置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON 或 SHORTAGE_ANALYZE_AGENT_COMMAND，让 train/shortage_analyze_skillopt/harness_chat.py 能调用当前 harness 的模型。
 5. target 执行必须先生成/复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
 6. 使用新的 out_root，不要复用旧输出目录。
 7. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
