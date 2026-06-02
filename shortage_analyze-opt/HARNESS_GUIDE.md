@@ -70,6 +70,22 @@ shortage_analyze-opt/shortage_analyze-init/analyze_shortage.py
 - `rollout.py` 使用 `generated_script` 机制执行预测。
 - 初始脚本和候选脚本都应提供 `predict_labels(features)` 和 `format_prediction(labels)`。
 
+## 接手前检查
+
+新 harness 接手后，先检查现成产物：
+
+```powershell
+Test-Path .\shortage_analyze-opt\processed\shortage_analyze_split\train\items.json
+Test-Path .\shortage_analyze-opt\processed\shortage_analyze_split\val\items.json
+Test-Path .\shortage_analyze-opt\processed\shortage_analyze_split\test\items.json
+Test-Path .\shortage_analyze-opt\shortage_analyze-init\initial_skill.md
+Test-Path .\shortage_analyze-opt\shortage_analyze-init\analyze_shortage.py
+```
+
+如果以上结果都为 `True`，直接跳到“运行优化”。不要重复执行 `prepare_skillopt_data.py` 或 `build_initial_skill.py`。
+
+只有在 processed split 缺失时，才执行数据处理；只有 `shortage_analyze-init` 缺失或用户明确要求重建时，才构建初始 SkillOpt skill。
+
 ## 当前目录约定
 
 ```text
@@ -89,7 +105,7 @@ shortage_analyze-opt/
 
 ## 数据处理
 
-如果 processed split 尚未生成：
+如果 processed split 尚未生成，才运行：
 
 ```powershell
 $env:PYTHONUTF8 = "1"
@@ -117,7 +133,7 @@ shortage_analyze-opt/processed/shortage_analyze_split/
 
 ## 构建初始 SkillOpt skill
 
-如果 `shortage_analyze-init/initial_skill.md` 不存在或需要重建：
+如果 `shortage_analyze-init/initial_skill.md` 或 `shortage_analyze-init/analyze_shortage.py` 不存在，或用户明确要求重建，才运行：
 
 ```powershell
 conda run -n llm python shortage_analyze-opt/process/build_initial_skill.py
@@ -359,10 +375,11 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 要求：
 1. 不要修改 shortage_analyze-opt/shortage_analyze。
 2. 训练从 shortage_analyze-opt/shortage_analyze-init/initial_skill.md 开始。
-3. 训练流程不能读取 data.xlsx、原始全量数据、测试集标签、shortage_analyze/references 或 shortage_analyze/scripts。
-4. 使用 SkillOpt 优化。
-5. 使用当前 harness 自带大模型，不额外配置 LLM key。所有训练中的 LLM 调用必须经过 train/shortage_analyze_skillopt/harness_chat.py 的 run_agent_chat(...)。
-6. target 执行必须先生成或复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
-7. 使用新的 out_root，不要复用旧输出目录。
-8. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
+3. 如果 processed/shortage_analyze_split 和 shortage_analyze-init 已存在，不要重复执行数据处理或初始 skill 构建，直接开始优化。
+4. 训练流程不能读取 data.xlsx、原始全量数据、测试集标签、shortage_analyze/references 或 shortage_analyze/scripts。
+5. 使用 SkillOpt 优化。
+6. 使用当前 harness 自带大模型，不额外配置 LLM key。所有训练中的 LLM 调用必须经过 train/shortage_analyze_skillopt/harness_chat.py 的 run_agent_chat(...)。
+7. target 执行必须先生成或复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
+8. 使用新的 out_root，不要复用旧输出目录。
+9. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
 ```

@@ -13,6 +13,20 @@
 - `processed/`：处理后的 train/val/test split 和离线评估输出。
 - `train/`：SkillOpt 训练入口、配置和 `shortage_analyze` adapter。训练流程只读取 `processed` split 和 `shortage_analyze-init`。
 
+## 接手前检查
+
+新的 Agent harness 接手时先检查下面文件：
+
+```text
+shortage_analyze-opt/processed/shortage_analyze_split/train/items.json
+shortage_analyze-opt/processed/shortage_analyze_split/val/items.json
+shortage_analyze-opt/processed/shortage_analyze_split/test/items.json
+shortage_analyze-opt/shortage_analyze-init/initial_skill.md
+shortage_analyze-opt/shortage_analyze-init/analyze_shortage.py
+```
+
+如果这些文件都存在，就不需要重复执行数据处理或初始 skill 构建，直接从“运行 SkillOpt 优化”开始。只有 split 缺失时才执行第 1 步；只有 `shortage_analyze-init` 缺失或明确需要重建时才执行第 2 步。
+
 ## 1. 处理数据
 
 ```powershell
