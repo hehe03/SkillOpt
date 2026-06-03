@@ -225,9 +225,32 @@ $env:SHORTAGE_ANALYZE_AGENT_COMMAND = '<harness-cli> <subcommand> --model "{mode
 - `{stage}`：调用阶段，例如 `optimizer`、`target`、`script_codegen`。
 - `{cwd}`：建议工作目录。
 
+自定义 harness 默认必须使用文件协议，即命令中应包含 `{prompt_file}`。如果某个 harness 确实只能从 stdin 读取 prompt，需要显式设置：
+
+```powershell
+$env:SHORTAGE_ANALYZE_AGENT_USE_STDIN = "1"
+```
+
+这只是兼容兜底，不推荐作为默认方式。Codex 分支保持其原生 stdin 输入和 `--output-last-message` 输出方式不变。
+
 ## 运行优化
 
-正式运行前建议指定新的 `out_root`，不要复用旧输出目录：
+默认情况下不需要指定 `out_root`。训练入口会在开始优化时自动生成：
+
+```text
+shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>
+```
+
+其中 `shortage_analyze` 来自待优化 skill 的名称，时间戳来自启动训练的时间。
+
+```powershell
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
+  --config shortage_analyze-opt/train/configs/default.yaml
+```
+
+如果需要手动覆盖输出目录，才额外指定 `env.out_root`：
 
 ```powershell
 $env:PYTHONUTF8 = "1"
@@ -235,6 +258,21 @@ $env:PYTHONIOENCODING = "utf-8"
 conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
   --config shortage_analyze-opt/train/configs/default.yaml `
   --cfg-options env.out_root=shortage_analyze-opt/train/outputs/shortage_analyze_<harness_name>_v1
+```
+
+每个 run 的文件协议记录都放在：
+
+```text
+<out_root>/llm-files/
+```
+
+除 Codex 外，opencode 和自定义 harness 的 prompt/response 文件都会写到这里。每次 LLM 调用都会生成新的文件，文件名包含 `step_0001`、`step_0002` 等递增后缀，例如：
+
+```text
+prompt_optimizer_step_0001.md
+response_optimizer_step_0001.txt
+prompt_opencode_script_codegen_step_0002.md
+response_opencode_script_codegen_step_0002.txt
 ```
 
 短实验可以覆盖 epoch 或 batch 配置。如果要手动停在某一步，必须等该 step 写入 `history.json` 后再停止训练进程。
@@ -281,19 +319,19 @@ format_prediction(labels)
 假设输出目录是：
 
 ```text
-shortage_analyze-opt/train/outputs/shortage_analyze_opencode_v1
+shortage_analyze-opt/train/outputs/shortage_analyze_20260603_153000
 ```
 
 查看完成到第几步：
 
 ```powershell
-Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\runtime_state.json -Encoding UTF8
+Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_20260603_153000\runtime_state.json -Encoding UTF8
 ```
 
 查看每步结果：
 
 ```powershell
-Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\history.json -Encoding UTF8
+Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_20260603_153000\history.json -Encoding UTF8
 ```
 
 重点字段：
@@ -309,7 +347,7 @@ Get-Content .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\hi
 检查是否结束：
 
 ```powershell
-Test-Path .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\summary.json
+Test-Path .\shortage_analyze-opt\train\outputs\shortage_analyze_20260603_153000\summary.json
 ```
 
 `summary.json` 存在且训练进程已退出，表示完整 run 结束。
@@ -320,7 +358,7 @@ Test-Path .\shortage_analyze-opt\train\outputs\shortage_analyze_opencode_v1\summ
 
 ```powershell
 conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py `
-  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<harness_name>_v1
+  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>
 ```
 
 默认输出：
@@ -334,7 +372,7 @@ shortage_analyze-opt/shortage_analyze-optimized/best/scripts/analyze_shortage.py
 
 ```powershell
 conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py `
-  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<harness_name>_v1 `
+  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS> `
   --script-mode skip
 ```
 
@@ -380,6 +418,7 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 5. 使用 SkillOpt 优化。
 6. 使用当前 harness 自带大模型，不额外配置 LLM key。所有训练中的 LLM 调用必须经过 train/shortage_analyze_skillopt/harness_chat.py 的 run_agent_chat(...)。
 7. target 执行必须先生成或复用 Python 规则脚本，再用脚本预测；不要逐样本调用 LLM。
-8. 使用新的 out_root，不要复用旧输出目录。
-9. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
+8. 默认使用自动生成的 out_root：shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>。
+9. 非 Codex harness 默认使用文件协议；prompt/response 文件保存在 <out_root>/llm-files，文件名带 step 后缀。
+10. 运行中报告每步 rollout_hard、selection_hard、action、best_score、best_step。
 ```

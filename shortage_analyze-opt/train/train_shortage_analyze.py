@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import datetime
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 import sys
@@ -203,6 +205,33 @@ def _patch_agent_harness_flat_config() -> None:
 
     original_load_config = train_module.load_config
 
+    def has_explicit_out_root(args) -> bool:
+        if getattr(args, "out_root", None):
+            return True
+        for option in getattr(args, "cfg_options", None) or []:
+            key = str(option).split("=", 1)[0].strip()
+            if key in {"env.out_root", "out_root"}:
+                return True
+        return False
+
+    def slug(value: str) -> str:
+        text = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(value or "").strip())
+        return text.strip("._-") or "skill"
+
+    def configure_shortage_output_root(cfg: dict, args) -> None:
+        skill_name = slug(str(cfg.get("env") or "shortage_analyze"))
+        if not has_explicit_out_root(args):
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            cfg["out_root"] = str((TRAIN_ROOT / "outputs" / f"{skill_name}_{timestamp}").resolve())
+        else:
+            cfg["out_root"] = str(Path(str(cfg["out_root"])).resolve())
+
+        llm_files_dir = Path(cfg["out_root"]) / "llm-files"
+        llm_files_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["SHORTAGE_ANALYZE_OUT_ROOT"] = str(Path(cfg["out_root"]))
+        os.environ["SHORTAGE_ANALYZE_LLM_FILES_DIR"] = str(llm_files_dir)
+        os.environ.setdefault("SHORTAGE_ANALYZE_OPENCODE_RUN_DIR", str(PROJECT_ROOT))
+
     def load_config_with_agent_harness(args):
         cfg = original_load_config(args)
         for key in ("model_backend", "optimizer_backend", "target_backend"):
@@ -213,6 +242,7 @@ def _patch_agent_harness_flat_config() -> None:
                 cfg[key] = "harness-default"
         if str(cfg.get("script_codegen_model") or "").strip().lower() in {"", "harness-default", "agent_harness"}:
             cfg["script_codegen_model"] = "harness-default"
+        configure_shortage_output_root(cfg, args)
         return cfg
 
     train_module.load_config = load_config_with_agent_harness

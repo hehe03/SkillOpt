@@ -6,7 +6,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
+
+
+_LLM_FILE_LOCK = threading.Lock()
+_LLM_FILE_STEP = 0
 
 
 def _resolve_codex_cli() -> str | None:
@@ -44,6 +49,29 @@ def _format_command_arg(value: str, variables: dict[str, str]) -> str:
         raise ValueError(f"Unknown placeholder in SHORTAGE_ANALYZE_AGENT_COMMAND: {exc}") from exc
 
 
+def _safe_stage_name(stage: str) -> str:
+    safe = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(stage or "llm")).strip("._-")
+    return safe or "llm"
+
+
+def _next_llm_file_paths(stage: str, *, cwd: str | os.PathLike[str] | None) -> tuple[Path, Path, int]:
+    global _LLM_FILE_STEP
+    with _LLM_FILE_LOCK:
+        _LLM_FILE_STEP += 1
+        step = _LLM_FILE_STEP
+
+    configured = os.environ.get("SHORTAGE_ANALYZE_LLM_FILES_DIR", "").strip()
+    if configured:
+        llm_dir = Path(configured)
+    else:
+        llm_dir = Path(cwd or os.getcwd()) / "llm-files"
+    llm_dir.mkdir(parents=True, exist_ok=True)
+
+    stage_name = _safe_stage_name(stage)
+    suffix = f"{stage_name}_step_{step:04d}"
+    return llm_dir / f"prompt_{suffix}.md", llm_dir / f"response_{suffix}.txt", step
+
+
 def _run_custom_agent_command(
     prompt: str,
     *,
@@ -57,58 +85,72 @@ def _run_custom_agent_command(
     if not command_json and not command_shell:
         raise ValueError("No custom harness command configured")
 
-    with tempfile.TemporaryDirectory(prefix=f"shortage_agent_{stage}_") as temp_dir:
-        temp_path = Path(temp_dir)
-        prompt_path = temp_path / "prompt.md"
-        output_path = temp_path / "response.txt"
-        prompt_path.write_text(prompt, encoding="utf-8")
-        variables = {
-            "prompt_file": str(prompt_path),
-            "output_file": str(output_path),
-            "model": model,
-            "stage": stage,
-            "cwd": str(cwd or os.getcwd()),
-        }
+    prompt_path, output_path, _step = _next_llm_file_paths(stage, cwd=cwd)
+    prompt_path.write_text(prompt, encoding="utf-8")
+    configured_text = command_json or command_shell
+    allow_stdin = os.environ.get("SHORTAGE_ANALYZE_AGENT_USE_STDIN", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if "{prompt_file}" not in configured_text and not allow_stdin:
+        raise ValueError(
+            "自定义 harness 默认使用文件协议，请在命令中加入 {prompt_file}。"
+            "如果确实要使用 stdin，请设置 SHORTAGE_ANALYZE_AGENT_USE_STDIN=1。"
+        )
+    variables = {
+        "prompt_file": str(prompt_path),
+        "output_file": str(output_path),
+        "model": model,
+        "stage": stage,
+        "cwd": str(cwd or os.getcwd()),
+    }
 
-        if command_json:
-            raw_command = json.loads(command_json)
-            if not isinstance(raw_command, list) or not all(isinstance(arg, str) for arg in raw_command):
-                raise ValueError("SHORTAGE_ANALYZE_AGENT_COMMAND_JSON must be a JSON string array")
-            command = [_format_command_arg(arg, variables) for arg in raw_command]
-            proc = subprocess.run(
-                command,
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-                cwd=str(cwd) if cwd else None,
-                encoding="utf-8",
-                errors="replace",
-            )
-        else:
-            command_text = _format_command_arg(command_shell, variables)
-            proc = subprocess.run(
-                command_text,
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-                cwd=str(cwd) if cwd else None,
-                shell=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+    if command_json:
+        raw_command = json.loads(command_json)
+        if not isinstance(raw_command, list) or not all(isinstance(arg, str) for arg in raw_command):
+            raise ValueError("SHORTAGE_ANALYZE_AGENT_COMMAND_JSON must be a JSON string array")
+        command = [_format_command_arg(arg, variables) for arg in raw_command]
+        stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_json else None
+        proc = subprocess.run(
+            command,
+            input=stdin_prompt,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            cwd=str(cwd) if cwd else None,
+            encoding="utf-8",
+            errors="replace",
+        )
+    else:
+        command_text = _format_command_arg(command_shell, variables)
+        stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_shell else None
+        proc = subprocess.run(
+            command_text,
+            input=stdin_prompt,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            cwd=str(cwd) if cwd else None,
+            shell=True,
+            encoding="utf-8",
+            errors="replace",
+        )
 
-        response = output_path.read_text(encoding="utf-8-sig").strip() if output_path.exists() else ""
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(detail[:4000] or f"custom harness command failed with exit code {proc.returncode}")
-        response = response or (proc.stdout or "").strip()
-        if not response:
-            raise RuntimeError("custom harness command returned an empty response")
-        return response
+    response = output_path.read_text(encoding="utf-8-sig").strip() if output_path.exists() else ""
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if detail and not output_path.exists():
+            output_path.write_text(detail, encoding="utf-8")
+        raise RuntimeError(detail[:4000] or f"custom harness command failed with exit code {proc.returncode}")
+    response = response or (proc.stdout or "").strip()
+    if not response:
+        raise RuntimeError("custom harness command returned an empty response")
+    if not output_path.exists():
+        output_path.write_text(response, encoding="utf-8")
+    return response
 
 
 def _run_codex_chat(
@@ -183,6 +225,7 @@ def _run_opencode_chat(
     model: str,
     timeout: int | None,
     cwd: str | os.PathLike[str] | None,
+    stage: str,
 ) -> str:
     opencode_bin = _resolve_opencode_cli()
     if not opencode_bin:
@@ -191,42 +234,48 @@ def _run_opencode_chat(
             "请确认 opencode 在 PATH 中，或设置 OPENCODE_CLI_BIN。"
         )
 
-    with tempfile.TemporaryDirectory(prefix="shortage_opencode_chat_") as temp_dir:
-        prompt_path = Path(temp_dir) / "prompt.md"
-        prompt_path.write_text(prompt, encoding="utf-8")
-        command = [
-            opencode_bin,
-            "run",
-            "--dir",
-            str(cwd or os.getcwd()),
-            "--file",
-            str(prompt_path),
-            *_opencode_model_args(model),
-        ]
-        agent = os.environ.get("SHORTAGE_ANALYZE_OPENCODE_AGENT", "").strip()
-        if agent:
-            command.extend(["--agent", agent])
-        command.append(
-            "Read the attached prompt.md and answer it directly. "
-            "Preserve the requested output format exactly and do not add commentary."
-        )
-        proc = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-            cwd=str(cwd) if cwd else None,
-            encoding="utf-8",
-            errors="replace",
-        )
-        response = _strip_ansi((proc.stdout or "").strip())
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(detail[:4000] or f"opencode run failed with exit code {proc.returncode}")
-        if not response:
-            raise RuntimeError("opencode returned an empty response")
-        return response
+    run_dir = Path(os.environ.get("SHORTAGE_ANALYZE_OPENCODE_RUN_DIR") or cwd or os.getcwd()).resolve()
+    prompt_path, output_path, _step = _next_llm_file_paths("opencode_" + _safe_stage_name(stage), cwd=run_dir)
+    prompt_path.write_text(prompt, encoding="utf-8")
+    try:
+        file_arg = prompt_path.relative_to(run_dir).as_posix()
+    except ValueError:
+        file_arg = str(prompt_path)
+    command = [
+        opencode_bin,
+        "run",
+        "--dir",
+        str(run_dir),
+        "--file",
+        file_arg,
+        *_opencode_model_args(model),
+    ]
+    agent = os.environ.get("SHORTAGE_ANALYZE_OPENCODE_AGENT", "").strip()
+    if agent:
+        command.extend(["--agent", agent])
+    command.append(
+        f"Read the attached file {file_arg!r} and answer it directly. "
+        "Preserve the requested output format exactly and do not add commentary."
+    )
+    proc = subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+        cwd=str(run_dir),
+        encoding="utf-8",
+        errors="replace",
+    )
+    response = _strip_ansi((proc.stdout or "").strip())
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        output_path.write_text(detail, encoding="utf-8")
+        raise RuntimeError(detail[:4000] or f"opencode run failed with exit code {proc.returncode}")
+    if not response:
+        raise RuntimeError("opencode returned an empty response")
+    output_path.write_text(response, encoding="utf-8")
+    return response
 
 
 def run_agent_chat(
@@ -252,7 +301,7 @@ def run_agent_chat(
         return _run_custom_agent_command(prompt, model=model, timeout=timeout, stage=stage, cwd=cwd)
     backend = _requested_backend()
     if backend == "opencode":
-        return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd)
+        return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if backend == "codex":
         return _run_codex_chat(prompt, model=model, timeout=timeout, cwd=cwd, sandbox=sandbox)
     if backend not in {"auto", ""}:
@@ -261,7 +310,7 @@ def run_agent_chat(
             "其它 harness 请配置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON。"
         )
     if _resolve_opencode_cli():
-        return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd)
+        return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if _resolve_codex_cli():
         return _run_codex_chat(prompt, model=model, timeout=timeout, cwd=cwd, sandbox=sandbox)
     raise RuntimeError(

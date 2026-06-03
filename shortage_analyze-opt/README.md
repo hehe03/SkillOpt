@@ -92,7 +92,16 @@ conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py --c
 - `model.optimizer/target: harness-default`：使用当前 harness 默认模型，不额外配置 LLM key。
 - `env.skill_init`、`env.initial_skill_path` 指向 `shortage_analyze-init/initial_skill.md`。
 - `env.initial_script_path` 指向 `shortage_analyze-init/analyze_shortage.py`。
+- `env.out_root` 默认为空；训练入口会在开始优化时自动生成 `shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>`。
 - `env.data_path: ""`、`evaluation.eval_test: false`、`env.allow_test_labels: false`：训练过程不读取 `data.xlsx` 或测试集标签。
+
+每个训练 run 都会在输出目录下创建：
+
+```text
+shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>/llm-files/
+```
+
+除 Codex 外，Agent harness 文件协议的 prompt/response 都会写入该目录，文件名包含 `step_0001`、`step_0002` 等递增后缀，便于回溯每次 LLM 调用。
 
 训练阶段 target 执行采用“先生成/复用 Python 规则脚本，再程序执行预测”的机制：
 
@@ -106,13 +115,14 @@ conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py --c
 训练完成后运行：
 
 ```powershell
-conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py
+conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py `
+  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>
 ```
 
-默认会将：
+其中 `shortage_analyze_<YYYYMMDD_HHMMSS>` 替换为本次训练实际生成的输出目录。该命令会将：
 
 ```text
-shortage_analyze-opt/train/outputs/shortage_analyze/best_skill.md
+shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>/best_skill.md
 ```
 
 导出为：
@@ -127,7 +137,9 @@ shortage_analyze-opt/shortage_analyze-optimized/best/scripts/analyze_shortage.py
 只导出 best skill、不生成脚本：
 
 ```powershell
-conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py --script-mode skip
+conda run -n llm python shortage_analyze-opt/process/finalize_optimized_skill.py `
+  --skillopt-output shortage_analyze-opt/train/outputs/shortage_analyze_<YYYYMMDD_HHMMSS> `
+  --script-mode skip
 ```
 
 ## 5. 比较优化前后测试集准确率

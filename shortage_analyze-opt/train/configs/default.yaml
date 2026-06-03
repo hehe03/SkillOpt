@@ -42,7 +42,7 @@ env:
   split_dir: shortage_analyze-opt/processed/shortage_analyze_split
   data_path: ""
   split_output_dir: ""
-  out_root: shortage_analyze-opt/train/outputs/shortage_analyze
+  out_root: ""
   workers: 1
   exec_timeout: 300
   max_completion_tokens: 4096
