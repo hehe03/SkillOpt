@@ -15,6 +15,17 @@ for path in (PROJECT_ROOT, OPTS_ROOT, TRAIN_ROOT):
         sys.path.insert(0, text)
 
 
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+
+
 def _patch_openai_chat_to_agent_harness() -> None:
     """Route optimizer-side OpenAI chat calls through the current Agent harness."""
     enabled = os.environ.get(
@@ -208,6 +219,7 @@ def _patch_agent_harness_flat_config() -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     original_argv = sys.argv[:]
     if argv is not None:
         sys.argv = [sys.argv[0], *argv]

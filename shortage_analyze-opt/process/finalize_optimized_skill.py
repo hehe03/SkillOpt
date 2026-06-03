@@ -39,6 +39,17 @@ DEFAULT_OUTPUT_SCRIPT = (
 DEFAULT_INITIAL_SCRIPT = SKILLOPT_ROOT / "shortage_analyze-init" / "analyze_shortage.py"
 
 
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="将 SkillOpt 输出的 best_skill.md 落到 shortage_analyze-optimized/best，并生成对应快速预测脚本。"
@@ -152,8 +163,8 @@ def run(args: argparse.Namespace) -> None:
         print(f"已复制初始脚本作为占位: {output_script_path}")
         return
 
-    best_skill = best_skill_path.read_text(encoding="utf-8")
-    initial_script = Path(args.initial_script).read_text(encoding="utf-8")
+    best_skill = best_skill_path.read_text(encoding="utf-8-sig")
+    initial_script = Path(args.initial_script).read_text(encoding="utf-8-sig")
     prompt = build_codegen_prompt(best_skill, initial_script)
     print(f"使用当前 Agent harness 生成优化规则脚本: {describe_agent_backend()}")
     response = run_agent_codegen(prompt, model=args.model, timeout=args.timeout)
@@ -163,6 +174,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     run(args)

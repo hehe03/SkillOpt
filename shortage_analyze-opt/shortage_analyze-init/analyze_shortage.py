@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import re
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,17 @@ import pandas as pd
 NONE_LABEL = "- 未匹配到分支"
 LABEL_ORDER = ["网容异常", "用量异常", "补库异常", "基线异常", "计划参数异常", "补库供应不及时", "责任库房异常", "替代交付异常"]
 EMPTY_STRINGS = {"", "none", "null", "nan", "n/a", "na", "(空)"}
+
+
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
 
 
 def is_empty(value: Any) -> bool:
@@ -256,6 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.input_split:

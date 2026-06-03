@@ -29,7 +29,7 @@ def _read_text_if_exists(path: str | os.PathLike[str]) -> str:
     resolved = Path(path)
     if not resolved.exists():
         return ""
-    return resolved.read_text(encoding="utf-8").strip()
+    return resolved.read_text(encoding="utf-8-sig").strip()
 
 
 def _same_skill_content(left: str, right_path: str | os.PathLike[str]) -> bool:
@@ -127,7 +127,7 @@ def resolve_script_for_skill(
         _validate_predictor(script_path)
         return script_path
 
-    reference_script = Path(initial_script_path).read_text(encoding="utf-8")
+    reference_script = Path(initial_script_path).read_text(encoding="utf-8-sig")
     prompt = _build_codegen_prompt(skill_content, reference_script)
     skill_path.write_text(skill_content, encoding="utf-8")
     prompt_path.write_text(prompt, encoding="utf-8")
@@ -263,7 +263,7 @@ def run_batch(
     results: list[dict[str, Any]] = []
     done_ids: set[str] = set()
     if results_path.exists():
-        with results_path.open(encoding="utf-8") as f:
+        with results_path.open(encoding="utf-8-sig") as f:
             for line in f:
                 try:
                     row = json.loads(line)

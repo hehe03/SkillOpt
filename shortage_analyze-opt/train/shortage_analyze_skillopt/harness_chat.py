@@ -101,7 +101,7 @@ def _run_custom_agent_command(
                 errors="replace",
             )
 
-        response = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        response = output_path.read_text(encoding="utf-8-sig").strip() if output_path.exists() else ""
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout or "").strip()
             raise RuntimeError(detail[:4000] or f"custom harness command failed with exit code {proc.returncode}")
@@ -155,7 +155,7 @@ def _run_codex_chat(
             encoding="utf-8",
             errors="replace",
         )
-        response = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        response = output_path.read_text(encoding="utf-8-sig").strip() if output_path.exists() else ""
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout or "").strip()
             raise RuntimeError(detail[:4000] or f"codex exec failed with exit code {proc.returncode}")

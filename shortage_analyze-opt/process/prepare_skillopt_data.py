@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -18,6 +19,17 @@ NONE_LABEL = "- 未匹配到分支"
 LABEL_DELIMITER = "、"
 EXCLUDED_FEATURE_COLUMNS = {"answer", "references"}
 SPLIT_NAMES = ("train", "val", "test")
+
+
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--split-ratio",
         default="3:2:5",
-        help="train:val:test 比例。默认 6:2:2。",
+        help="train:val:test 比例。默认 3:2:5。",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -321,6 +333,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     run(args)

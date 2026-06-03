@@ -38,6 +38,17 @@ LABEL_ORDER = [
 ]
 
 
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="比较优化前后 shortage_analyze skill 在测试集上的准确率。"
@@ -107,7 +118,7 @@ def label_f1(prediction: str, gold: str) -> float:
 
 
 def load_items(path: Path) -> list[dict[str, Any]]:
-    with path.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8-sig") as f:
         data = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"Expected JSON array in {path}")
@@ -115,7 +126,7 @@ def load_items(path: Path) -> list[dict[str, Any]]:
 
 
 def load_gold_from_private_labels(path: Path) -> dict[str, str]:
-    with path.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8-sig") as f:
         data = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"Expected JSON array in {path}")
@@ -290,6 +301,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     run(args)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,6 +10,17 @@ SKILLOPT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ORIGINAL_SKILL = SKILLOPT_ROOT / "shortage_analyze" / "SKILL.md"
 DEFAULT_RULES = SKILLOPT_ROOT / "shortage_analyze" / "references" / "rules.md"
 DEFAULT_OUTPUT = SKILLOPT_ROOT / "shortage_analyze-init" / "initial_skill.md"
+
+
+def configure_windows_utf8_stdio() -> None:
+    """Keep Chinese console output readable on Windows when possible."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,8 +89,8 @@ def run(args: argparse.Namespace) -> None:
     rules_path = Path(args.rules)
     output_path = Path(args.output)
 
-    original_skill_path.read_text(encoding="utf-8")
-    rules = rules_path.read_text(encoding="utf-8")
+    original_skill_path.read_text(encoding="utf-8-sig")
+    rules = rules_path.read_text(encoding="utf-8-sig")
     initial_skill = build_initial_skill(rules)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +101,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    configure_windows_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     run(args)
