@@ -27,6 +27,31 @@ def _resolve_codex_cli() -> str | None:
     return shutil.which("codex")
 
 
+def _resolve_nga_cli() -> str | None:
+    configured = os.environ.get("NGA_CLI_BIN") or os.environ.get("NGA_EXEC_PATH")
+    if configured:
+        return configured if Path(configured).exists() or shutil.which(configured) else None
+
+    ochome = os.environ.get("OCHOME")
+    if ochome:
+        for name in ("nga.cmd", "nga.exe", "nga"):
+            candidate = Path(ochome) / name
+            if candidate.exists():
+                return str(candidate)
+
+    user_ochome = Path.home() / "OCHOME"
+    for name in ("nga.cmd", "nga.exe", "nga"):
+        candidate = user_ochome / name
+        if candidate.exists():
+            return str(candidate)
+
+    for name in ("nga.cmd", "nga.exe", "nga"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
 def _resolve_opencode_cli() -> str | None:
     configured = os.environ.get("OPENCODE_CLI_BIN") or os.environ.get("OPENCODE_EXEC_PATH")
     if configured:
@@ -171,7 +196,7 @@ def _run_codex_chat(
     if not codex_bin:
         raise RuntimeError(
             "SHORTAGE_ANALYZE_AGENT_BACKEND=codex，但未找到 Codex CLI。"
-            "请设置 CODEX_CLI_BIN，或改用 SHORTAGE_ANALYZE_AGENT_BACKEND=opencode，"
+            "请设置 CODEX_CLI_BIN，或改用 SHORTAGE_ANALYZE_AGENT_BACKEND=nga/opencode，"
             "或配置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON。"
         )
     with tempfile.TemporaryDirectory(prefix="shortage_codex_chat_") as temp_dir:
@@ -215,6 +240,60 @@ def _run_codex_chat(
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+
+
+def _run_nga_chat(
+    prompt: str,
+    *,
+    model: str,
+    timeout: int | None,
+    cwd: str | os.PathLike[str] | None,
+    stage: str,
+) -> str:
+    del model
+    nga_bin = _resolve_nga_cli()
+    if not nga_bin:
+        raise RuntimeError(
+            "SHORTAGE_ANALYZE_AGENT_BACKEND=nga，但未找到 Nga CLI。"
+            "请确认 nga 在 PATH 或 ~/OCHOME 中，或设置 NGA_CLI_BIN。"
+        )
+
+    run_dir = Path(os.environ.get("SHORTAGE_ANALYZE_NGA_RUN_DIR") or cwd or os.getcwd()).resolve()
+    prompt_path, output_path, _step = _next_llm_file_paths("nga_" + _safe_stage_name(stage), cwd=run_dir)
+    prompt_path.write_text(prompt, encoding="utf-8")
+    instruction = os.environ.get(
+        "SHORTAGE_ANALYZE_NGA_INSTRUCTION",
+        "Read the attached file and answer the question directly. "
+        "Preserve the requested output format exactly and do not add commentary.",
+    ).strip()
+    command = [
+        nga_bin,
+        "run",
+        instruction,
+        "--file",
+        str(prompt_path),
+    ]
+    proc = subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+        cwd=str(run_dir),
+        encoding="utf-8",
+        errors="replace",
+    )
+    response = _strip_ansi((proc.stdout or "").strip())
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        output_path.write_text(detail, encoding="utf-8")
+        raise RuntimeError(detail[:4000] or f"nga run failed with exit code {proc.returncode}")
+    if not response:
+        detail = (proc.stderr or "").strip()
+        output_path.write_text(detail, encoding="utf-8")
+        raise RuntimeError(detail[:4000] or "Nga returned an empty response")
+    output_path.write_text(response, encoding="utf-8")
+    return response
 
 
 def _opencode_model_args(model: str) -> list[str]:
@@ -303,30 +382,35 @@ def run_agent_chat(
 
     Backend resolution order:
     1. SHORTAGE_ANALYZE_AGENT_COMMAND_JSON / SHORTAGE_ANALYZE_AGENT_COMMAND
-    2. SHORTAGE_ANALYZE_AGENT_BACKEND when set to opencode or codex
-    3. auto-detect opencode CLI
-    4. auto-detect Codex CLI
+    2. SHORTAGE_ANALYZE_AGENT_BACKEND when set to nga, opencode, or codex
+    3. auto-detect Nga CLI
+    4. auto-detect opencode CLI
+    5. auto-detect Codex CLI
     """
     if os.environ.get("SHORTAGE_ANALYZE_AGENT_COMMAND_JSON", "").strip() or os.environ.get(
         "SHORTAGE_ANALYZE_AGENT_COMMAND", ""
     ).strip():
         return _run_custom_agent_command(prompt, model=model, timeout=timeout, stage=stage, cwd=cwd)
     backend = _requested_backend()
+    if backend == "nga":
+        return _run_nga_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if backend == "opencode":
         return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if backend == "codex":
         return _run_codex_chat(prompt, model=model, timeout=timeout, cwd=cwd, sandbox=sandbox)
     if backend not in {"auto", ""}:
         raise ValueError(
-            "SHORTAGE_ANALYZE_AGENT_BACKEND 只支持 auto、opencode、codex；"
+            "SHORTAGE_ANALYZE_AGENT_BACKEND 只支持 auto、nga、opencode、codex；"
             "其它 harness 请配置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON。"
         )
+    if _resolve_nga_cli():
+        return _run_nga_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if _resolve_opencode_cli():
         return _run_opencode_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if _resolve_codex_cli():
         return _run_codex_chat(prompt, model=model, timeout=timeout, cwd=cwd, sandbox=sandbox)
     raise RuntimeError(
-        "没有找到可自动调用的 Agent harness。请安装/配置 opencode 或 Codex CLI，"
+        "没有找到可自动调用的 Agent harness。请安装/配置 Nga、opencode 或 Codex CLI，"
         "或设置 SHORTAGE_ANALYZE_AGENT_COMMAND_JSON / SHORTAGE_ANALYZE_AGENT_COMMAND。"
     )
 
@@ -337,6 +421,8 @@ def describe_agent_backend() -> str:
     if os.environ.get("SHORTAGE_ANALYZE_AGENT_COMMAND", "").strip():
         return "custom harness command from SHORTAGE_ANALYZE_AGENT_COMMAND"
     backend = _requested_backend()
+    if backend == "nga" or (backend == "auto" and _resolve_nga_cli()):
+        return f"Nga CLI ({_resolve_nga_cli()})"
     if backend == "opencode" or (backend == "auto" and _resolve_opencode_cli()):
         return f"opencode CLI ({_resolve_opencode_cli()})"
     if backend == "codex" or (backend == "auto" and _resolve_codex_cli()):

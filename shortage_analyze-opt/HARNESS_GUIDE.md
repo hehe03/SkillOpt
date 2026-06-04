@@ -1,6 +1,6 @@
 # 新 harness 接手指南
 
-本文档面向新的 Agent harness，例如 Codex、opencode 或其它支持调用自身大模型的 Agent。读完后应能继续运行 `shortage_analyze` 的 SkillOpt 优化，并避免误读原始数据或测试集标签。
+本文档面向新的 Agent harness，例如 Nga、Codex、opencode 或其它支持调用自身大模型的 Agent。读完后应能继续运行 `shortage_analyze` 的 SkillOpt 优化，并避免误读原始数据或测试集标签。
 
 ## 任务目标
 
@@ -184,10 +184,35 @@ run_agent_chat(...)
 自动路由顺序：
 
 1. 如果配置了 `SHORTAGE_ANALYZE_AGENT_COMMAND_JSON` 或 `SHORTAGE_ANALYZE_AGENT_COMMAND`，使用自定义 harness 命令。
-2. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=opencode`，使用 opencode CLI。
-3. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=codex`，使用 Codex CLI。
-4. 如果未设置或为 `auto`，先检测 opencode，再检测 Codex。
-5. 如果都不可用，直接报错并提示配置方式，不应卡在 Codex CLI。
+2. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=nga`，使用 Nga CLI。
+3. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=opencode`，使用 opencode CLI。
+4. 如果 `SHORTAGE_ANALYZE_AGENT_BACKEND=codex`，使用 Codex CLI。
+5. 如果未设置或为 `auto`，依次检测 Nga、opencode、Codex。
+6. 如果都不可用，直接报错并提示配置方式，不应卡在 Codex CLI。
+
+### Nga
+
+项目内置的 Nga 调用协议来自 `shortage_analyze-opt/train/harness_chat_test.py`：
+
+```text
+nga run <instruction> --file <absolute_prompt_path>
+```
+
+完整 prompt 写入 `<out_root>/llm-files/prompt_nga_<stage>_step_<n>.md`，Nga 从该文件读取请求并将回答输出到 `stdout`；训练流程再把回答保存到配对的 `response_nga_<stage>_step_<n>.txt`。
+
+使用 Nga：
+
+```powershell
+$env:SHORTAGE_ANALYZE_AGENT_BACKEND = "nga"
+```
+
+如果 Nga 不在 PATH，可显式指定：
+
+```powershell
+$env:NGA_CLI_BIN = "C:\Users\<user>\OCHOME\nga.cmd"
+```
+
+代码也会自动检测 `$env:OCHOME`、`~/OCHOME/nga.cmd`、`nga.cmd`、`nga.exe` 和 `nga`。Nga 的工作目录默认固定为当前项目根目录，可通过 `SHORTAGE_ANALYZE_NGA_RUN_DIR` 覆盖。
 
 ### opencode
 
@@ -266,11 +291,13 @@ conda run -n llm python shortage_analyze-opt/train/train_shortage_analyze.py `
 <out_root>/llm-files/
 ```
 
-除 Codex 外，opencode 和自定义 harness 的 prompt/response 文件都会写到这里。每次 LLM 调用都会生成新的文件，文件名包含 `step_0001`、`step_0002` 等递增后缀，例如：
+除 Codex 外，Nga、opencode 和自定义 harness 的 prompt/response 文件都会写到这里。每次 LLM 调用都会生成新的文件，文件名包含 `step_0001`、`step_0002` 等递增后缀，例如：
 
 ```text
 prompt_optimizer_step_0001.md
 response_optimizer_step_0001.txt
+prompt_nga_script_codegen_step_0002.md
+response_nga_script_codegen_step_0002.txt
 prompt_opencode_script_codegen_step_0002.md
 response_opencode_script_codegen_step_0002.txt
 ```

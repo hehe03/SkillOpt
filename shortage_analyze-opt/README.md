@@ -2,7 +2,7 @@
 
 本目录把原始 skill、训练前后处理、SkillOpt 训练和优化产物分开管理，目的是避免优化过程读取 `data.xlsx` 或测试集标签。
 
-如果要交给新的 Agent harness（例如 Codex、opencode 或其它 Agent）继续运行，请先让它阅读 [HARNESS_GUIDE.md](HARNESS_GUIDE.md)。
+如果要交给新的 Agent harness（例如 Nga、Codex、opencode 或其它 Agent）继续运行，请先让它阅读 [HARNESS_GUIDE.md](HARNESS_GUIDE.md)。
 
 ## 目录约定
 

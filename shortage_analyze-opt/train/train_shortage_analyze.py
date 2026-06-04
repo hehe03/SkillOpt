@@ -230,6 +230,7 @@ def _patch_agent_harness_flat_config() -> None:
         llm_files_dir.mkdir(parents=True, exist_ok=True)
         os.environ["SHORTAGE_ANALYZE_OUT_ROOT"] = str(Path(cfg["out_root"]))
         os.environ["SHORTAGE_ANALYZE_LLM_FILES_DIR"] = str(llm_files_dir)
+        os.environ.setdefault("SHORTAGE_ANALYZE_NGA_RUN_DIR", str(PROJECT_ROOT))
         os.environ.setdefault("SHORTAGE_ANALYZE_OPENCODE_RUN_DIR", str(PROJECT_ROOT))
 
     def load_config_with_agent_harness(args):
