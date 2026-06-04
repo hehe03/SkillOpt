@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -38,10 +39,72 @@ def _same_skill_content(left: str, right_path: str | os.PathLike[str]) -> bool:
 
 
 def _extract_python_code(text: str) -> str:
-    match = re.search(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip() + "\n"
-    return text.strip() + "\n"
+    required_functions = {"predict_labels", "format_prediction"}
+
+    def parse_candidate(candidate: str) -> tuple[str, ast.Module] | None:
+        normalized = candidate.strip().lstrip("\ufeff")
+        if not normalized:
+            return None
+        try:
+            tree = ast.parse(normalized)
+        except SyntaxError:
+            return None
+        function_names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        if not required_functions.issubset(function_names):
+            return None
+        return normalized + "\n", tree
+
+    fenced_blocks = re.findall(
+        r"```(?:python|py)?[^\S\r\n]*\r?\n(.*?)```",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    valid_fenced = [parsed for block in fenced_blocks if (parsed := parse_candidate(block))]
+    if valid_fenced:
+        return max(valid_fenced, key=lambda item: len(item[0]))[0]
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    lines = [line for line in lines if not re.fullmatch(r"\s*```(?:python|py)?\s*", line, re.IGNORECASE)]
+    start_patterns = (
+        r"\s*#!",
+        r"\s*#.*coding[:=]",
+        r"\s*from\s+\S+\s+import\b",
+        r"\s*import\s+\S+",
+        r"\s*[A-Za-z_]\w*(?:\s*:\s*[^=]+)?\s*=",
+        r"\s*(?:async\s+)?def\s+\w+\s*\(",
+        r"\s*class\s+\w+",
+        r"\s*@\w+",
+        r"\s*(?:if|try|with)\b",
+        r'\s*(?:"""|\'\'\')',
+    )
+    start_indexes = [
+        index
+        for index, line in enumerate(lines)
+        if any(re.match(pattern, line) for pattern in start_patterns)
+    ]
+    if 0 not in start_indexes:
+        start_indexes.append(0)
+
+    best: str | None = None
+    for start in sorted(set(start_indexes)):
+        for end in range(len(lines), start, -1):
+            parsed = parse_candidate("\n".join(lines[start:end]))
+            if parsed:
+                code = parsed[0]
+                if best is None or len(code) > len(best):
+                    best = code
+                break
+    if best is not None:
+        return best
+
+    raise ValueError(
+        "脚本生成响应中没有找到可解析的完整 Python 程序；"
+        "响应必须定义 predict_labels(features) 和 format_prediction(labels)。"
+    )
 
 
 def _build_codegen_prompt(skill_content: str, reference_script: str) -> str:
@@ -124,8 +187,11 @@ def resolve_script_for_skill(
     script_dir.mkdir(parents=True, exist_ok=True)
 
     if script_path.exists():
-        _validate_predictor(script_path)
-        return script_path
+        try:
+            _validate_predictor(script_path)
+            return script_path
+        except Exception:
+            script_path.unlink()
 
     reference_script = Path(initial_script_path).read_text(encoding="utf-8-sig")
     prompt = _build_codegen_prompt(skill_content, reference_script)
@@ -133,8 +199,15 @@ def resolve_script_for_skill(
     prompt_path.write_text(prompt, encoding="utf-8")
     response = _run_agent_codegen(prompt, timeout=codegen_timeout, model=codegen_model)
     raw_path.write_text(response, encoding="utf-8")
-    script_path.write_text(_extract_python_code(response), encoding="utf-8")
-    _validate_predictor(script_path)
+    code = _extract_python_code(response)
+    pending_script_path = script_dir / "_pending_analyze_shortage.py"
+    try:
+        compile(code, str(script_path), "exec")
+        pending_script_path.write_text(code, encoding="utf-8")
+        _validate_predictor(pending_script_path)
+        pending_script_path.replace(script_path)
+    finally:
+        pending_script_path.unlink(missing_ok=True)
     return script_path
 
 
