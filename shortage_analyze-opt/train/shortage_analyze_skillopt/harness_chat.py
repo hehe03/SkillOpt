@@ -56,20 +56,26 @@ def _safe_stage_name(stage: str) -> str:
 
 def _next_llm_file_paths(stage: str, *, cwd: str | os.PathLike[str] | None) -> tuple[Path, Path, int]:
     global _LLM_FILE_STEP
-    with _LLM_FILE_LOCK:
-        _LLM_FILE_STEP += 1
-        step = _LLM_FILE_STEP
-
     configured = os.environ.get("SHORTAGE_ANALYZE_LLM_FILES_DIR", "").strip()
     if configured:
         llm_dir = Path(configured)
+        if not llm_dir.is_absolute():
+            llm_dir = Path(cwd or os.getcwd()) / llm_dir
     else:
         llm_dir = Path(cwd or os.getcwd()) / "llm-files"
+    llm_dir = llm_dir.resolve()
     llm_dir.mkdir(parents=True, exist_ok=True)
 
     stage_name = _safe_stage_name(stage)
-    suffix = f"{stage_name}_step_{step:04d}"
-    return llm_dir / f"prompt_{suffix}.md", llm_dir / f"response_{suffix}.txt", step
+    with _LLM_FILE_LOCK:
+        while True:
+            _LLM_FILE_STEP += 1
+            step = _LLM_FILE_STEP
+            suffix = f"{stage_name}_step_{step:04d}"
+            prompt_path = llm_dir / f"prompt_{suffix}.md"
+            response_path = llm_dir / f"response_{suffix}.txt"
+            if not prompt_path.exists() and not response_path.exists():
+                return prompt_path, response_path, step
 
 
 def _run_custom_agent_command(
@@ -241,22 +247,28 @@ def _run_opencode_chat(
         file_arg = prompt_path.relative_to(run_dir).as_posix()
     except ValueError:
         file_arg = str(prompt_path)
+    cli_prompt_path = (run_dir / file_arg).resolve() if not Path(file_arg).is_absolute() else Path(file_arg)
+    if cli_prompt_path != prompt_path.resolve() or not cli_prompt_path.is_file():
+        raise FileNotFoundError(
+            "opencode --file 路径与生成的 prompt 文件不匹配："
+            f" run_dir={run_dir}, file_arg={file_arg}, resolved={cli_prompt_path}, prompt={prompt_path}"
+        )
+    instruction = (
+        f"Read the attached file {file_arg!r} and answer it directly. "
+        "Preserve the requested output format exactly and do not add commentary."
+    )
     command = [
         opencode_bin,
         "run",
+        instruction,
         "--dir",
         str(run_dir),
-        "--file",
-        file_arg,
+        f"--file={file_arg}",
         *_opencode_model_args(model),
     ]
     agent = os.environ.get("SHORTAGE_ANALYZE_OPENCODE_AGENT", "").strip()
     if agent:
         command.extend(["--agent", agent])
-    command.append(
-        f"Read the attached file {file_arg!r} and answer it directly. "
-        "Preserve the requested output format exactly and do not add commentary."
-    )
     proc = subprocess.run(
         command,
         text=True,
