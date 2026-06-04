@@ -427,7 +427,7 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 ## 推荐给新 harness 的启动提示
 
 ```text
-请在 D:\code\github\hehe03\SkillOpt 仓库中继续优化 shortage_analyze。
+本仓库是微软的SkillOpt项目，请使用本项目优化 shortage_analyze，相关文件在shortage_analyze-opt，不要修改shortage_analyze-opt以外的文件。
 
 开始前请完整阅读：
 - shortage_analyze-opt/HARNESS_GUIDE.md
@@ -436,6 +436,7 @@ shortage_analyze-opt/processed/eval/test_accuracy_compare.json
 - shortage_analyze-opt/train/shortage_analyze_skillopt/harness_chat.py
 - shortage_analyze-opt/train/shortage_analyze_skillopt/adapter.py
 - shortage_analyze-opt/train/shortage_analyze_skillopt/rollout.py
+
 
 要求：
 1. 不要修改 shortage_analyze-opt/shortage_analyze。
