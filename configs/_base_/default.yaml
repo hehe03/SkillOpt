@@ -28,21 +28,33 @@ model:
   azure_openai_endpoint: ""           # e.g. "https://your-resource.openai.azure.com/"
   azure_openai_api_version: "2024-12-01-preview"
   azure_openai_api_key: ""       # Fill locally if you do not export AZURE_OPENAI_API_KEY
-  azure_openai_auth_mode: azure_cli
+  azure_openai_auth_mode: ""           # empty → fall back to AZURE_OPENAI_AUTH_MODE env (default "azure_cli")
   azure_openai_ad_scope: "https://cognitiveservices.azure.com/.default"
   azure_openai_managed_identity_client_id: ""
   optimizer_azure_openai_endpoint: ""   # e.g. "https://your-resource.openai.azure.com/"
   optimizer_azure_openai_api_version: "2024-12-01-preview"
   optimizer_azure_openai_api_key: ""
-  optimizer_azure_openai_auth_mode: azure_cli
+  optimizer_azure_openai_auth_mode: ""           # empty → fall back to OPTIMIZER_AZURE_OPENAI_AUTH_MODE env, then shared
   optimizer_azure_openai_ad_scope: "https://cognitiveservices.azure.com/.default"
   optimizer_azure_openai_managed_identity_client_id: ""
   target_azure_openai_endpoint: ""   # e.g. "https://your-resource.openai.azure.com/"
   target_azure_openai_api_version: "2024-12-01-preview"
   target_azure_openai_api_key: ""
-  target_azure_openai_auth_mode: azure_cli
+  target_azure_openai_auth_mode: ""           # empty → fall back to TARGET_AZURE_OPENAI_AUTH_MODE env, then shared
   target_azure_openai_ad_scope: "https://cognitiveservices.azure.com/.default"
   target_azure_openai_managed_identity_client_id: ""
+
+  # MiniMax backend settings (minimax_chat target)
+  minimax_base_url: ""          # https://api.minimax.io/v1 if blank
+  minimax_api_key: ""
+  minimax_model: "MiniMax-M2.7"
+  minimax_temperature: "0.7"
+  minimax_max_tokens: "8000"
+  minimax_enable_thinking: "false"
+  optimizer_minimax_base_url: ""    # per-role override
+  target_minimax_base_url: ""       # per-role override
+  optimizer_minimax_api_key: ""
+  target_minimax_api_key: ""
 
 train:
   num_epochs: 4
@@ -66,6 +78,7 @@ optimizer:
   skill_update_mode: patch  # patch / rewrite_from_suggestions / full_rewrite_minibatch
   use_slow_update: true
   slow_update_samples: 20
+  slow_update_gate_with_selection: false
   longitudinal_pair_policy: mixed  # mixed / changed / unchanged
   use_meta_skill: true
 

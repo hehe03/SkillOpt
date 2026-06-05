@@ -24,7 +24,7 @@ from collections import defaultdict
 
 from skillopt.datasets.base import BatchSpec
 from skillopt.envs.base import EnvAdapter
-from skillopt.evaluation.gate import evaluate_gate
+from skillopt.evaluation.gate import evaluate_gate, select_gate_score
 from skillopt.gradient.aggregate import merge_patches
 from skillopt.optimizer.meta_skill import run_meta_skill
 from skillopt.optimizer.clip import rank_and_select
@@ -51,6 +51,7 @@ from skillopt.model import (
     configure_azure_openai,
     configure_claude_code_exec,
     configure_codex_exec,
+    configure_minimax_chat,
     configure_qwen_chat,
     get_token_summary,
     reset_token_tracker,
@@ -374,7 +375,7 @@ def _compute_task_type_buckets(results: list[dict], task_types: list[str]) -> di
             if key not in buckets:
                 buckets[key] = {"total": 0, "hard": 0, "soft": 0.0}
             buckets[key]["total"] += 1
-            buckets[key]["hard"] += int(r.get("hard", 0))
+            buckets[key]["hard"] += float(r.get("hard", 0))
             buckets[key]["soft"] += float(r.get("soft", 0.0))
     return buckets
 
@@ -393,7 +394,7 @@ def _extract_failure_patterns(
     Uses analyst ``failure_summary`` from minibatch patches when available,
     otherwise falls back to ``fail_reason`` prefix grouping.
     """
-    failures = [r for r in rollout_results if not r.get("hard")]
+    failures = [r for r in rollout_results if not r.get("hard") or float(r.get("hard", 0)) < 1e-9]
     if not failures:
         return []
 
@@ -635,7 +636,29 @@ class ReflACTTrainer:
             timeout_seconds=cfg.get("qwen_chat_timeout_seconds"),
             max_tokens=cfg.get("qwen_chat_max_tokens"),
             enable_thinking=cfg.get("qwen_chat_enable_thinking"),
+            optimizer_base_url=cfg.get("optimizer_qwen_chat_base_url") or None,
+            optimizer_api_key=cfg.get("optimizer_qwen_chat_api_key") or None,
+            optimizer_temperature=cfg.get("optimizer_qwen_chat_temperature"),
+            optimizer_timeout_seconds=cfg.get("optimizer_qwen_chat_timeout_seconds"),
+            optimizer_max_tokens=cfg.get("optimizer_qwen_chat_max_tokens"),
+            optimizer_enable_thinking=cfg.get("optimizer_qwen_chat_enable_thinking"),
+            target_base_url=cfg.get("target_qwen_chat_base_url") or None,
+            target_api_key=cfg.get("target_qwen_chat_api_key") or None,
+            target_temperature=cfg.get("target_qwen_chat_temperature"),
+            target_timeout_seconds=cfg.get("target_qwen_chat_timeout_seconds"),
+            target_max_tokens=cfg.get("target_qwen_chat_max_tokens"),
+            target_enable_thinking=cfg.get("target_qwen_chat_enable_thinking"),
         )
+        configure_minimax_chat(
+            base_url=cfg.get("minimax_base_url") or None,
+            api_key=cfg.get("minimax_api_key") or None,
+            temperature=cfg.get("minimax_temperature"),
+            max_tokens=cfg.get("minimax_max_tokens"),
+            enable_thinking=cfg.get("minimax_enable_thinking"),
+        )
+        minimax_model_cfg = cfg.get("minimax_model")
+        if minimax_model_cfg and cfg.get("target_backend") == "minimax_chat":
+            set_target_deployment(str(minimax_model_cfg))
         os.environ["REFLACT_CODEX_TRACE_TO_OPTIMIZER"] = (
             "1"
             if target_backend == "codex_exec" and cfg.get("codex_trace_to_optimizer", False)
@@ -845,6 +868,35 @@ class ReflACTTrainer:
                 "Gate validation is mandatory in this branch. Remove "
                 "`evaluation.use_gate=false` from the config."
             )
+        gate_metric = str(cfg.get("gate_metric", "hard")).strip().lower()
+        if gate_metric not in {"hard", "soft", "mixed"}:
+            raise ValueError(
+                f"evaluation.gate_metric must be 'hard' | 'soft' | 'mixed', "
+                f"got {gate_metric!r}"
+            )
+        gate_mixed_weight = float(cfg.get("gate_mixed_weight", 0.5))
+        if not 0.0 <= gate_mixed_weight <= 1.0:
+            raise ValueError(
+                f"evaluation.gate_mixed_weight must be in [0, 1], "
+                f"got {gate_mixed_weight}"
+            )
+        print(
+            f"  [gate] metric={gate_metric}"
+            + (
+                f" mixed_weight={gate_mixed_weight}"
+                if gate_metric == "mixed"
+                else ""
+            )
+        )
+        slow_gate_with_selection = bool(
+            cfg.get("slow_update_gate_with_selection", False)
+        )
+        print(
+            "  [slow update] acceptance="
+            + ("gated (selection-set validation)"
+               if slow_gate_with_selection
+               else "force-accept (unconditional)")
+        )
         if current_score < 0:
             print(f"\n{'='*60}")
             print("  BASELINE — evaluate initial skill on Selection set (valid_seen)")
@@ -857,16 +909,20 @@ class ReflACTTrainer:
             print(f"  Selection items: {sel_n}")
             baseline_dir = os.path.join(out_root, "selection_eval_baseline")
             baseline_results = adapter.rollout(sel_env, skill_init, baseline_dir)
-            current_score, baseline_soft = compute_score(baseline_results)
+            baseline_hard, baseline_soft = compute_score(baseline_results)
+            current_score = select_gate_score(
+                baseline_hard, baseline_soft, gate_metric, gate_mixed_weight,
+            )
             best_score = current_score
             sh = skill_hash(skill_init)
-            sel_cache[sh] = (current_score, baseline_soft)
+            sel_cache[sh] = (baseline_hard, baseline_soft)
             current_origin = "initial_skill"
             best_origin = "initial_skill"
             _persist_runtime_state(0)
             print(
-                f"  [baseline result] selection hard={current_score:.4f} "
-                f"soft={baseline_soft:.4f}"
+                f"  [baseline result] selection hard={baseline_hard:.4f} "
+                f"soft={baseline_soft:.4f} "
+                f"gate[{gate_metric}]={current_score:.4f}"
             )
 
         # ── Training loop ────────────────────────────────────────────────
@@ -1287,7 +1343,15 @@ class ReflACTTrainer:
                     best_score=best_score,
                     best_step=best_step,
                     global_step=global_step,
+                    cand_soft=cand_soft,
+                    metric=gate_metric,
+                    mixed_weight=gate_mixed_weight,
                 )
+                cand_gate_score = select_gate_score(
+                    cand_hard, cand_soft, gate_metric, gate_mixed_weight,
+                )
+                step_rec["gate_metric"] = gate_metric
+                step_rec["candidate_gate_score"] = cand_gate_score
                 step_rec["action"] = gate.action
                 prev_current = current_score
                 prev_best = best_score
@@ -1301,20 +1365,29 @@ class ReflACTTrainer:
                 if gate.action == "accept_new_best":
                     best_origin = current_origin
 
+                if gate_metric == "hard":
+                    score_label = f"hard={cand_hard:.4f}"
+                elif gate_metric == "soft":
+                    score_label = f"soft={cand_soft:.4f}"
+                else:
+                    score_label = (
+                        f"mixed[w={gate_mixed_weight}]={cand_gate_score:.4f} "
+                        f"(hard={cand_hard:.4f} soft={cand_soft:.4f})"
+                    )
                 if gate.action == "accept_new_best":
                     print(
                         f"    [6/6 EVALUATE] ACCEPT (new best) "
-                        f"hard={cand_hard:.4f} > prev best {prev_best:.4f}"
+                        f"{score_label} > prev best {prev_best:.4f}"
                     )
                 elif gate.action == "accept":
                     print(
                         f"    [6/6 EVALUATE] ACCEPT "
-                        f"hard={cand_hard:.4f} > current={prev_current:.4f}"
+                        f"{score_label} > current={prev_current:.4f}"
                     )
                 else:
                     print(
                         f"    [6/6 EVALUATE] REJECT "
-                        f"hard={cand_hard:.4f} <= current={current_score:.4f}"
+                        f"{score_label} <= current={current_score:.4f}"
                     )
 
                 step_rec["timing"]["evaluate_s"] = round(time.time() - t_phase, 1)
@@ -1322,7 +1395,7 @@ class ReflACTTrainer:
                 # ── Step buffer: unified failure patterns + rejected edits ─
                 action = step_rec.get("action", "unknown")
                 n_total = len(all_rollout_results) or 1
-                n_fail = sum(1 for r in all_rollout_results if not r.get("hard"))
+                n_fail = sum(1 for r in all_rollout_results if not r.get("hard") or float(r.get("hard", 0)) < 1e-9)
                 failure_patterns = _extract_failure_patterns(
                     all_rollout_results, step_dir,
                 )
@@ -1343,7 +1416,7 @@ class ReflACTTrainer:
                         if isinstance(item, dict)
                     ]
                     buf_entry["score_before"] = current_score
-                    buf_entry["score_after"] = cand_hard
+                    buf_entry["score_after"] = cand_gate_score
                     buf_entry["rejected_edits"] = rejected_edits
 
                 step_buffer.append(buf_entry)
@@ -1427,17 +1500,27 @@ class ReflACTTrainer:
                             epoch_comparison_pairs = None
                     if (
                         slow_saved.get("slow_update_content")
-                        and slow_saved.get("action") in {
-                            "accept", "accept_new_best", "force_accept",
-                        }
                         and epoch >= 2
                     ):
-                        current_skill = replace_slow_update_field(
-                            current_skill, slow_saved["slow_update_content"],
-                        )
-                        best_skill = replace_slow_update_field(
-                            best_skill, slow_saved["slow_update_content"],
-                        )
+                        action = slow_saved.get("action")
+                        if slow_gate_with_selection:
+                            # Gated mode (follow SkillReflection): re-apply the
+                            # guidance to current_skill only when it was accepted.
+                            if action in {"accept", "accept_new_best"}:
+                                current_skill = replace_slow_update_field(
+                                    current_skill,
+                                    slow_saved["slow_update_content"],
+                                )
+                        elif action in {
+                            "accept", "accept_new_best", "force_accept",
+                        }:
+                            # Force-accept mode: re-apply to both current & best.
+                            current_skill = replace_slow_update_field(
+                                current_skill, slow_saved["slow_update_content"],
+                            )
+                            best_skill = replace_slow_update_field(
+                                best_skill, slow_saved["slow_update_content"],
+                            )
                 elif epoch == 1:
                     # Epoch 1: inject empty placeholder
                     os.makedirs(slow_dir, exist_ok=True)
@@ -1577,31 +1660,119 @@ class ReflACTTrainer:
                             "observed across adjacent epochs."
                         )
 
-                        # Slow update field is force-updated into both
-                        # current_skill and best_skill unconditionally.
-                        # The epoch-level longitudinal guidance should always
-                        # persist — it must not be gated by step-level
-                        # selection scores.
-                        slow_content = slow_result["slow_update_content"]
-                        current_skill = replace_slow_update_field(
-                            current_skill, slow_content,
-                        )
-                        best_skill = replace_slow_update_field(
-                            best_skill, slow_content,
-                        )
-                        # Update caches so downstream steps use the
-                        # slow-update-injected skill for hashing.
-                        slow_candidate_hash = skill_hash(current_skill)
-                        sel_cache[slow_candidate_hash] = (current_score, 0.0)
+                        # Slow update acceptance — two modes selected via
+                        # `optimizer.slow_update_gate_with_selection`.
+                        if slow_gate_with_selection:
+                            # ── Gated mode (follow SkillReflection) ──────────
+                            # Evaluate the slow-update candidate on the
+                            # selection set and accept/reject via the same
+                            # validation gate used for step-level updates.
+                            if slow_candidate_hash in sel_cache:
+                                slow_sel_hard, slow_sel_soft = sel_cache[
+                                    slow_candidate_hash
+                                ]
+                                print(
+                                    f"    [slow gate] cache hit: "
+                                    f"hard={slow_sel_hard:.4f}"
+                                )
+                            else:
+                                sel_env, sel_n = _build_eval_env(
+                                    split="valid_seen",
+                                    env_num=cfg["sel_env_num"],
+                                    seed=seed,
+                                )
+                                print(f"    [slow gate] selection items={sel_n}")
+                                slow_eval_dir = os.path.join(
+                                    slow_dir, "selection_eval",
+                                )
+                                slow_eval_results = adapter.rollout(
+                                    sel_env, slow_candidate, slow_eval_dir,
+                                )
+                                slow_sel_hard, slow_sel_soft = compute_score(
+                                    slow_eval_results
+                                )
+                                sel_cache[slow_candidate_hash] = (
+                                    slow_sel_hard, slow_sel_soft,
+                                )
 
-                        slow_result["action"] = "force_accept"
-                        current_origin = f"slow_update_epoch_{epoch:02d}"
+                            slow_gate = evaluate_gate(
+                                candidate_skill=slow_candidate,
+                                cand_hard=slow_sel_hard,
+                                current_skill=current_skill,
+                                current_score=current_score,
+                                best_skill=best_skill,
+                                best_score=best_score,
+                                best_step=best_step,
+                                global_step=global_step,
+                                cand_soft=slow_sel_soft,
+                                metric=gate_metric,
+                                mixed_weight=gate_mixed_weight,
+                            )
+                            slow_result["selection_hard"] = slow_sel_hard
+                            slow_result["selection_soft"] = slow_sel_soft
+                            slow_result["action"] = slow_gate.action
+                            prev_current = current_score
+                            prev_best = best_score
+                            current_skill = slow_gate.current_skill
+                            current_score = slow_gate.current_score
+                            best_skill = slow_gate.best_skill
+                            best_score = slow_gate.best_score
+                            best_step = slow_gate.best_step
+                            if slow_gate.action in {"accept", "accept_new_best"}:
+                                current_origin = (
+                                    f"slow_update_epoch_{epoch:02d}"
+                                )
+                            if slow_gate.action == "accept_new_best":
+                                best_origin = current_origin
+                                print(
+                                    f"    [slow gate] ACCEPT (new best) "
+                                    f"hard={slow_sel_hard:.4f} > "
+                                    f"prev best {prev_best:.4f}"
+                                )
+                            elif slow_gate.action == "accept":
+                                print(
+                                    f"    [slow gate] ACCEPT "
+                                    f"hard={slow_sel_hard:.4f} > "
+                                    f"current={prev_current:.4f}"
+                                )
+                            else:
+                                print(
+                                    f"    [slow gate] REJECT "
+                                    f"hard={slow_sel_hard:.4f} <= "
+                                    f"current={current_score:.4f}"
+                                )
+                            print(
+                                f"    [slow update] guidance written "
+                                f"({len(slow_result['slow_update_content'])} "
+                                f"chars), {slow_time}s"
+                            )
+                        else:
+                            # ── Force-accept mode (default) ──────────────────
+                            # The epoch-level longitudinal guidance is injected
+                            # into both current_skill and best_skill
+                            # unconditionally — it must not be gated by
+                            # step-level selection scores.
+                            slow_content = slow_result["slow_update_content"]
+                            current_skill = replace_slow_update_field(
+                                current_skill, slow_content,
+                            )
+                            best_skill = replace_slow_update_field(
+                                best_skill, slow_content,
+                            )
+                            # Update caches so downstream steps use the
+                            # slow-update-injected skill for hashing.
+                            slow_candidate_hash = skill_hash(current_skill)
+                            sel_cache[slow_candidate_hash] = (current_score, 0.0)
 
-                        print(
-                            f"    [slow update] force-injected into current & best "
-                            f"({len(slow_content)} chars), "
-                            f"{slow_time}s"
-                        )
+                            slow_result["action"] = "force_accept"
+                            current_origin = f"slow_update_epoch_{epoch:02d}"
+
+                            print(
+                                f"    [slow update] force-injected into "
+                                f"current & best "
+                                f"({len(slow_content)} chars), "
+                                f"{slow_time}s"
+                            )
                     else:
                         slow_result = slow_result or {}
                         slow_result["action"] = "no_content"

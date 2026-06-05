@@ -6,7 +6,20 @@ dist/
 site/
 .idea
 
-data/
+data/*
+!data/README.md
+!data/searchqa_id_split/
+!data/searchqa_id_split/**
+!data/livemathematicianbench_id_split/
+!data/livemathematicianbench_id_split/**
+!data/docvqa_id_split/
+!data/docvqa_id_split/**
+!data/officeqa_id_split/
+!data/officeqa_id_split/**
+!data/spreadsheetbench_id_split/
+!data/spreadsheetbench_id_split/**
+!data/alfworld_path_split/
+!data/alfworld_path_split/**
 outputs/
 logs/
 external/
@@ -41,3 +54,4 @@ docs/reflact_overview.html
 docs/render_ablation_paper_tables.py
 docs/让*
 .gradio/
+.venv

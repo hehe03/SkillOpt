@@ -91,6 +91,11 @@ def replace_slow_update_field(skill: str, new_content: str) -> str:
 # ── Comparison text builder ─────────────────────────────────────────────────
 
 
+# NOTE: The character limits below (whole-trajectory cap + the per-field caps in
+# _read_trajectory and the comparison metadata) only trim the comparison samples
+# fed to the slow-update optimizer. They exist to cut token usage and speed up the
+# call; they do NOT affect what gets written into the skill. If you need richer
+# context for the longitudinal comparison, feel free to raise them.
 _MAX_TRAJ_CHARS = 3000
 
 
@@ -117,6 +122,8 @@ def _read_trajectory(rollout_dir: str, task_id: str) -> str:
     for entry in conversation:
         if not isinstance(entry, dict):
             continue
+        # Per-field caps (cmd/obs/reasoning/etc.) keep each trajectory compact to
+        # save tokens / time; raise them if you want fuller step detail.
         if entry.get("type") == "tool_call":
             cmd = _clip_text(entry.get("cmd"), 500)
             obs = _clip_text(entry.get("obs"), 800)
@@ -352,10 +359,6 @@ def run_slow_update(
         )
     comparison_text = format_comparison_text(pairs)
 
-    prev_skill_display = prev_skill
-    if len(prev_skill_display) > 6000:
-        prev_skill_display = prev_skill_display[:6000] + "\n...[truncated]..."
-
     prev_guidance_section = (
         prev_slow_update_content.strip()
         if prev_slow_update_content and prev_slow_update_content.strip()
@@ -363,7 +366,7 @@ def run_slow_update(
     )
 
     user = (
-        f"## Previous Epoch's Skill\n{prev_skill_display}\n\n"
+        f"## Previous Epoch's Skill\n{prev_skill}\n\n"
         f"## Current Epoch's Skill\n{skill_content}\n\n"
         f"## Previous Slow Update Guidance\n"
         f"The following guidance was active during the current epoch. "
@@ -377,7 +380,7 @@ def run_slow_update(
         response, _ = chat_optimizer(
             system=actual_system,
             user=user,
-            max_completion_tokens=4096,
+            max_completion_tokens=16384,
             retries=3,
             stage="slow_update",
         )

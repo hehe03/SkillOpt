@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     # Legacy flat CLI overrides (still work, prefer --cfg-options for new usage)
     p.add_argument("--env", type=str)
     p.add_argument("--backend", type=str,
-                   choices=["azure_openai", "codex", "codex_exec", "claude", "claude_chat", "claude_code_exec", "qwen", "qwen_chat"])
+                   choices=["azure_openai", "codex", "codex_exec", "claude", "claude_chat", "claude_code_exec", "qwen", "qwen_chat", "minimax", "minimax_chat"])
     p.add_argument("--optimizer_model", type=str)
     p.add_argument("--target_model", type=str)
     p.add_argument("--optimizer_backend", type=str)
@@ -173,6 +173,24 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--qwen_chat_timeout_seconds", type=float)
     p.add_argument("--qwen_chat_max_tokens", type=int)
     p.add_argument("--qwen_chat_enable_thinking", type=_BOOL)
+    p.add_argument("--optimizer_qwen_chat_base_url", type=str)
+    p.add_argument("--optimizer_qwen_chat_api_key", type=str)
+    p.add_argument("--optimizer_qwen_chat_temperature", type=float)
+    p.add_argument("--optimizer_qwen_chat_timeout_seconds", type=float)
+    p.add_argument("--optimizer_qwen_chat_max_tokens", type=int)
+    p.add_argument("--optimizer_qwen_chat_enable_thinking", type=_BOOL)
+    p.add_argument("--target_qwen_chat_base_url", type=str)
+    p.add_argument("--target_qwen_chat_api_key", type=str)
+    p.add_argument("--target_qwen_chat_temperature", type=float)
+    p.add_argument("--target_qwen_chat_timeout_seconds", type=float)
+    p.add_argument("--target_qwen_chat_max_tokens", type=int)
+    p.add_argument("--target_qwen_chat_enable_thinking", type=_BOOL)
+    p.add_argument("--minimax_base_url", type=str)
+    p.add_argument("--minimax_api_key", type=str)
+    p.add_argument("--minimax_model", type=str)
+    p.add_argument("--minimax_temperature", type=float)
+    p.add_argument("--minimax_max_tokens", type=int)
+    p.add_argument("--minimax_enable_thinking", type=_BOOL)
     p.add_argument("--codex_exec_path", type=str)
     p.add_argument("--codex_exec_sandbox", type=str)
     p.add_argument("--codex_exec_profile", type=str)
@@ -289,6 +307,24 @@ _LEGACY_TO_STRUCTURED: dict[str, str] = {
     "qwen_chat_timeout_seconds": "model.qwen_chat_timeout_seconds",
     "qwen_chat_max_tokens": "model.qwen_chat_max_tokens",
     "qwen_chat_enable_thinking": "model.qwen_chat_enable_thinking",
+    "optimizer_qwen_chat_base_url": "model.optimizer_qwen_chat_base_url",
+    "optimizer_qwen_chat_api_key": "model.optimizer_qwen_chat_api_key",
+    "optimizer_qwen_chat_temperature": "model.optimizer_qwen_chat_temperature",
+    "optimizer_qwen_chat_timeout_seconds": "model.optimizer_qwen_chat_timeout_seconds",
+    "optimizer_qwen_chat_max_tokens": "model.optimizer_qwen_chat_max_tokens",
+    "optimizer_qwen_chat_enable_thinking": "model.optimizer_qwen_chat_enable_thinking",
+    "target_qwen_chat_base_url": "model.target_qwen_chat_base_url",
+    "target_qwen_chat_api_key": "model.target_qwen_chat_api_key",
+    "target_qwen_chat_temperature": "model.target_qwen_chat_temperature",
+    "target_qwen_chat_timeout_seconds": "model.target_qwen_chat_timeout_seconds",
+    "target_qwen_chat_max_tokens": "model.target_qwen_chat_max_tokens",
+    "target_qwen_chat_enable_thinking": "model.target_qwen_chat_enable_thinking",
+    "minimax_base_url": "model.minimax_base_url",
+    "minimax_api_key": "model.minimax_api_key",
+    "minimax_model": "model.minimax_model",
+    "minimax_temperature": "model.minimax_temperature",
+    "minimax_max_tokens": "model.minimax_max_tokens",
+    "minimax_enable_thinking": "model.minimax_enable_thinking",
     "codex_exec_path": "model.codex_exec_path",
     "codex_exec_sandbox": "model.codex_exec_sandbox",
     "codex_exec_profile": "model.codex_exec_profile",
@@ -403,6 +439,9 @@ def load_config(args: argparse.Namespace) -> dict:
         elif backend in {"qwen", "qwen_chat"}:
             flat.setdefault("optimizer_backend", "openai_chat")
             flat.setdefault("target_backend", "qwen_chat")
+        elif backend in {"minimax", "minimax_chat"}:
+            flat.setdefault("optimizer_backend", "openai_chat")
+            flat.setdefault("target_backend", "minimax_chat")
         else:
             flat.setdefault("optimizer_backend", "openai_chat")
             flat.setdefault("target_backend", "openai_chat")
@@ -416,6 +455,12 @@ def load_config(args: argparse.Namespace) -> dict:
             and not _has_model_override("model.optimizer", "optimizer_model")
         ):
             flat["optimizer_model"] = default_model_for_backend("claude_chat")
+    if flat.get("optimizer_backend") == "qwen_chat":
+        if (
+            str(flat.get("optimizer_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.optimizer", "optimizer_model")
+        ):
+            flat["optimizer_model"] = default_model_for_backend("qwen_chat")
     if flat.get("target_backend") == "claude_chat":
         if (
             str(flat.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
@@ -434,6 +479,15 @@ def load_config(args: argparse.Namespace) -> dict:
             and not _has_model_override("model.target", "target_model")
         ):
             flat["target_model"] = default_model_for_backend("qwen_chat")
+    if flat.get("target_backend") == "minimax_chat":
+        if (
+            str(flat.get("target_model", "") or "").strip() in _OPENAI_DEFAULT_MODEL_SENTINELS
+            and not _has_model_override("model.target", "target_model")
+        ):
+            flat["target_model"] = (
+                flat.get("minimax_model")
+                or default_model_for_backend("minimax_chat")
+            )
 
     # Auto-generate output root
     if not flat.get("out_root"):

@@ -5,16 +5,31 @@ import html
 import json
 import os
 import re
+import socket
+import time
 from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 _MAX_READ_CHARS = 4000
 _MAX_GREP_MATCHES = 20
 _MAX_GLOB_MATCHES = 50
 _MAX_ORACLE_PAGE_CHARS = 24000
 _MAX_ORACLE_CONTEXT_CHARS = 80000
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/135.0 Safari/537.36"
+)
+DEFAULT_CUSTOM_SEARCH_URL = "http://apisix.westus2.cloudapp.azure.com/search_tool/search"
+DEFAULT_CUSTOM_SEARCH_AUTH_ENV = "OFFICEQA_CUSTOM_SEARCH_AUTH"
+DEFAULT_CUSTOM_SEARCH_PROVIDER = "duckduckgo"
+DEFAULT_CUSTOM_SEARCH_MAX_RESULTS = 4
+DEFAULT_CUSTOM_SEARCH_TIMEOUT = 20
+DEFAULT_CUSTOM_SEARCH_MAX_RETRIES = 4
+DEFAULT_CUSTOM_SEARCH_INITIAL_BACKOFF_SECONDS = 1.0
 
 
 def _normalize_data_dirs(data_dirs: list[str] | tuple[str, ...] | str | None, project_root: Path) -> list[str]:
@@ -350,6 +365,141 @@ def build_oracle_parsed_pages_context(
         f"{evidence_note.strip()}\n\n"
         + "\n\n".join(blocks)
     )
+
+
+def _extract_search_items(payload: object) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    candidate_keys = (
+        "results",
+        "items",
+        "data",
+        "organic",
+        "organic_results",
+        "search_results",
+        "webPages",
+        "value",
+    )
+    for key in candidate_keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = _extract_search_items(value)
+            if nested:
+                return nested
+    return []
+
+
+def _normalize_search_item(item: dict, index: int) -> str:
+    title = str(
+        item.get("title")
+        or item.get("name")
+        or item.get("headline")
+        or item.get("source")
+        or f"Result {index}"
+    ).strip()
+    url = str(
+        item.get("url")
+        or item.get("link")
+        or item.get("href")
+        or item.get("display_url")
+        or ""
+    ).strip()
+    snippet = str(
+        item.get("snippet")
+        or item.get("description")
+        or item.get("body")
+        or item.get("text")
+        or item.get("content")
+        or ""
+    ).strip()
+    lines = [f"[{index}] {title}"]
+    if url:
+        lines.append(f"URL: {url}")
+    if snippet:
+        lines.append(f"Snippet: {snippet}")
+    return "\n".join(lines)
+
+
+def _format_search_payload(query: str, payload: object) -> str:
+    items = _extract_search_items(payload)
+    header = f"Query: {query}"
+    if not items:
+        body = json.dumps(payload, ensure_ascii=False) if payload else "[no results]"
+        return f"{header}\n{body}"
+    rendered = [_normalize_search_item(item, index) for index, item in enumerate(items, start=1)]
+    return f"{header}\n\n" + "\n\n".join(rendered)
+
+
+def _is_retryable_search_http_error(status_code: int) -> bool:
+    return status_code in {408, 429} or status_code >= 500
+
+
+def custom_search(
+    query: str,
+    *,
+    api_url: str = DEFAULT_CUSTOM_SEARCH_URL,
+    auth_token: str | None = None,
+    auth_env: str = DEFAULT_CUSTOM_SEARCH_AUTH_ENV,
+    provider: str = DEFAULT_CUSTOM_SEARCH_PROVIDER,
+    max_num_results: int = DEFAULT_CUSTOM_SEARCH_MAX_RESULTS,
+    timeout: int = DEFAULT_CUSTOM_SEARCH_TIMEOUT,
+    max_retries: int = DEFAULT_CUSTOM_SEARCH_MAX_RETRIES,
+    initial_backoff_seconds: float = DEFAULT_CUSTOM_SEARCH_INITIAL_BACKOFF_SECONDS,
+) -> str:
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("custom_search query must be non-empty")
+    token = str(auth_token or os.environ.get(auth_env, "")).strip()
+    if not token:
+        raise ValueError(f"custom_search auth token missing; set {auth_env}")
+    payload = json.dumps(
+        {
+            "query": query,
+            "max_num_results": int(max_num_results),
+            "provider": provider,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = Request(
+        api_url,
+        data=payload,
+        headers={
+            "Authorization": token,
+            "Content-Type": "application/json",
+            "User-Agent": DEFAULT_USER_AGENT,
+        },
+        method="POST",
+    )
+    attempts = max(1, int(max_retries) + 1)
+    last_error: RuntimeError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urlopen(req, timeout=timeout) as response:
+                raw_body = response.read().decode("utf-8", errors="ignore")
+            break
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            last_error = RuntimeError(f"custom_search HTTP {exc.code}: {detail[:1000]}")
+            if attempt >= attempts or not _is_retryable_search_http_error(exc.code):
+                raise last_error from exc
+        except (URLError, TimeoutError, socket.timeout) as exc:
+            last_error = RuntimeError(f"custom_search connection error: {exc}")
+            if attempt >= attempts:
+                raise last_error from exc
+        backoff_seconds = max(0.0, float(initial_backoff_seconds)) * (2 ** (attempt - 1))
+        if backoff_seconds > 0:
+            time.sleep(backoff_seconds)
+    else:
+        raise last_error or RuntimeError("custom_search failed without a captured error")
+    try:
+        parsed = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return f"Query: {query}\n\n{raw_body.strip() or '[empty response]'}"
+    return _format_search_payload(query, parsed)
 
 
 def run_tool(name: str, arguments: dict, *, allowed_roots: list[str], allowed_files: list[str]) -> tuple[str, str]:

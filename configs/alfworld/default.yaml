@@ -19,7 +19,7 @@ env:
   name: alfworld
   skill_init: skillopt/envs/alfworld/skills/initial.md
   split_mode: split_dir
-  split_dir: data/ablation_splits/alfworld/2-1-7_seed42
+  split_dir: data/alfworld_path_split
   data_path: ""
   split_output_dir: ""
   max_steps: 50

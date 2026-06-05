@@ -41,14 +41,6 @@ def run_meta_skill(
     """Produce updated optimizer-side meta skill from adjacent epochs."""
     actual_system = system_prompt if system_prompt is not None else load_prompt("meta_skill")
 
-    prev_skill_display = prev_skill
-    if len(prev_skill_display) > 6000:
-        prev_skill_display = prev_skill_display[:6000] + "\n...[truncated]..."
-
-    curr_skill_display = curr_skill
-    if len(curr_skill_display) > 6000:
-        curr_skill_display = curr_skill_display[:6000] + "\n...[truncated]..."
-
     prev_meta_section = (
         prev_meta_skill_content.strip()
         if prev_meta_skill_content and prev_meta_skill_content.strip()
@@ -57,8 +49,8 @@ def run_meta_skill(
 
     comparison_text = format_comparison_text(comparison_pairs)
     user = (
-        f"## Previous Epoch Last-Step Skill\n{prev_skill_display}\n\n"
-        f"## Current Epoch Last-Step Skill\n{curr_skill_display}\n\n"
+        f"## Previous Epoch Last-Step Skill\n{prev_skill}\n\n"
+        f"## Current Epoch Last-Step Skill\n{curr_skill}\n\n"
         f"## Previous Optimizer Meta Skill\n"
         f"The following optimizer memory was available during the current epoch. "
         f"Reflect on whether it improved or harmed the quality of edits.\n\n"
@@ -71,7 +63,7 @@ def run_meta_skill(
         response, _ = chat_optimizer(
             system=actual_system,
             user=user,
-            max_completion_tokens=3072,
+            max_completion_tokens=16384,
             retries=3,
             stage="meta_skill",
         )

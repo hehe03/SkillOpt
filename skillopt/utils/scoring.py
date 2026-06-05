@@ -7,17 +7,16 @@ import hashlib
 def compute_score(results: list) -> tuple[float, float]:
     """Compute hard and soft accuracy from a list of episode results.
 
-    Accepts both plain dicts and :class:`~skillopt.types.RolloutResult`
-    instances.
+    Accepts both plain dicts and :class:    instances.  hard may be continuous (0.0-1.0) when using smoothed reward.
     """
     if not results:
         return 0.0, 0.0
 
-    def _hard(r: object) -> int:
-        return int(r.hard if hasattr(r, "hard") else r.get("hard", 0))  # type: ignore[union-attr]
+    def _hard(r: object) -> float:
+        return float(r.hard if hasattr(r, "hard") else r.get("hard", 0))
 
     def _soft(r: object) -> float:
-        return float(r.soft if hasattr(r, "soft") else r.get("soft", 0.0))  # type: ignore[union-attr]
+        return float(r.soft if hasattr(r, "soft") else r.get("soft", 0.0))
 
     hard = sum(_hard(r) for r in results) / len(results)
     soft = sum(_soft(r) for r in results) / len(results)

@@ -254,7 +254,7 @@ def _run_claude_print(*, system: str, prompt: str, model: str, tools: list[dict[
         if system:
             cmd.extend(["--append-system-prompt", system])
         if effort:
-            cmd.extend(["--thinking", effort])
+            cmd.extend(["--effort", effort])
         structured_output = bool(return_message)
         if structured_output:
             cmd.extend(["--schema", _assistant_message_schema_wrapper()])

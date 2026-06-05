@@ -188,7 +188,7 @@ def _build_user(
 
 # ── LLM call with retry ────────────────────────────────────────────────────
 
-def _llm_call_with_retry(call_fn, *, retries: int = 5, timeout: int = 120):
+def _llm_call_with_retry(call_fn, *, retries: int = 5, timeout: int | None = 120):
     """Wrap an LLM API call with retry and per-call timeout."""
     last_err = None
     for attempt in range(retries):
@@ -335,7 +335,7 @@ def _chat_call(
     deployment: str,
     messages: list[dict],
     max_output_tokens: int,
-    llm_timeout: int = 120,
+    llm_timeout: int | None = 120,
 ) -> str:
     """Single LLM call, no tools. Returns raw text."""
     reasoning_effort = get_reasoning_effort()
@@ -402,8 +402,8 @@ def run_single(
     answer_position: str = "",
     skill_content: str = "",
     max_output_tokens: int = 16384,
-    llm_timeout: int = 120,
-    task_timeout: int = 300,
+    llm_timeout: int | None = 120,
+    task_timeout: int | None = 300,
     diagnostic_mode: bool = False,
     diagnostic_instruction: str = "",
     diagnostic_trace_context: str = "",
@@ -416,8 +416,9 @@ def run_single(
 
     Returns ``{"code": str, "raw": str, "n_turns": 1}``.
     """
+    no_task_timeout = task_timeout is None or task_timeout <= 0
     if is_target_exec_backend():
-        deadline = time.time() + task_timeout
+        deadline = None if no_task_timeout else time.time() + task_timeout
         deployment = _get_deployment()
         work_dir, skill_md, task_md, prompt = _prepare_codex_workspace(
             instruction=instruction,
@@ -430,8 +431,11 @@ def run_single(
             diagnostic_instruction=diagnostic_instruction,
             diagnostic_trace_context=diagnostic_trace_context,
         )
-        remaining = max(10, int(deadline - time.time()))
-        effective_timeout = min(task_timeout, remaining)
+        if deadline is None:
+            effective_timeout = 10**9
+        else:
+            remaining = max(10, int(deadline - time.time()))
+            effective_timeout = min(task_timeout, remaining)
         final_message, raw = _run_exec_backend(
             work_dir=work_dir,
             prompt=prompt,
@@ -453,7 +457,7 @@ def run_single(
             "target_user_prompt": f"{prompt}\n\n## Task File\n\n{task_md}",
         }
 
-    deadline = time.time() + task_timeout
+    deadline = None if no_task_timeout else time.time() + task_timeout
     client = get_target_client()
     deployment = _get_deployment()
     system = _build_system(skill_content)
@@ -472,8 +476,11 @@ def run_single(
         {"role": "user", "content": user},
     ]
 
-    remaining = max(10, int(deadline - time.time()))
-    effective_timeout = min(llm_timeout, remaining)
+    if deadline is None:
+        effective_timeout = None
+    else:
+        remaining = max(10, int(deadline - time.time()))
+        effective_timeout = min(llm_timeout or remaining, remaining)
     raw = _chat_call(client, deployment, messages, max_output_tokens, llm_timeout=effective_timeout)
     time.sleep(3)  # Rate-limit cooldown after successful LLM call
     code = extract_code(raw)
@@ -497,8 +504,8 @@ def run_multi(
     skill_content: str = "",
     max_turns: int = 5,
     max_output_tokens: int = 16384,
-    llm_timeout: int = 120,
-    task_timeout: int = 600,
+    llm_timeout: int | None = 120,
+    task_timeout: int | None = 600,
     gold_path: str = "",
     diagnostic_mode: bool = False,
     diagnostic_instruction: str = "",
@@ -520,8 +527,9 @@ def run_multi(
 
     Returns ``{"code": str, "raw": str, "n_turns": int, "conversation": [...]}``.
     """
+    no_task_timeout = task_timeout is None or task_timeout <= 0
     if is_target_exec_backend():
-        deadline = time.time() + task_timeout
+        deadline = None if no_task_timeout else time.time() + task_timeout
         deployment = _get_deployment()
         work_dir, skill_md, task_md, initial_prompt = _prepare_codex_workspace(
             instruction=instruction,
@@ -549,11 +557,13 @@ def run_multi(
         solution_path = os.path.join(work_dir, "solution.py")
 
         for turn in range(max_turns):
-            remaining = deadline - time.time()
-            if remaining <= 10:
-                break
-
-            effective_timeout = max(10, int(remaining))
+            if deadline is None:
+                effective_timeout = 10**9
+            else:
+                remaining = deadline - time.time()
+                if remaining <= 10:
+                    break
+                effective_timeout = max(10, int(remaining))
             final_message, raw = _run_exec_backend(
                 work_dir=work_dir,
                 prompt=prompt,
@@ -577,7 +587,12 @@ def run_multi(
                     "Write a complete `solution.py` that reads `INPUT_PATH` and saves `OUTPUT_PATH`."
                 )
             else:
-                ok, err = run_generated_code(code, input_xlsx, output_path)
+                ok, err = run_generated_code(
+                    code,
+                    input_xlsx,
+                    output_path,
+                    timeout=None if no_task_timeout else 120,
+                )
                 if ok:
                     if gold_path and answer_position:
                         from skillopt.envs.spreadsheetbench.rollout import _auto_verify_output
@@ -617,7 +632,7 @@ def run_multi(
             "target_user_prompt": f"{initial_prompt}\n\n## Task File\n\n{task_md}",
         }
 
-    deadline = time.time() + task_timeout
+    deadline = None if no_task_timeout else time.time() + task_timeout
     client = get_target_client()
     deployment = _get_deployment()
     system = _build_system(skill_content)
@@ -640,12 +655,14 @@ def run_multi(
     raw = ""
 
     for turn in range(max_turns):
-        remaining = deadline - time.time()
-        if remaining <= 10:
-            # Not enough time for another round
-            break
-
-        effective_timeout = min(llm_timeout, int(remaining))
+        if deadline is None:
+            effective_timeout = None
+        else:
+            remaining = deadline - time.time()
+            if remaining <= 10:
+                # Not enough time for another round
+                break
+            effective_timeout = min(llm_timeout or int(remaining), int(remaining))
         raw = _chat_call(client, deployment, messages, max_output_tokens, llm_timeout=effective_timeout)
         time.sleep(3)  # Rate-limit cooldown after successful LLM call
         code = extract_code(raw)
@@ -663,7 +680,12 @@ def run_multi(
             continue
 
         # Execute the code
-        ok, err = run_generated_code(code, input_xlsx, output_path)
+        ok, err = run_generated_code(
+            code,
+            input_xlsx,
+            output_path,
+            timeout=None if no_task_timeout else 120,
+        )
         if ok:
             # Execution succeeded — check correctness if gold_path available
             if gold_path and answer_position:

@@ -6,14 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from skillopt.envs.officeqa.evaluator import evaluate
 from skillopt.envs.officeqa.tool_runtime import (
     build_oracle_parsed_pages_context,
+    custom_search,
     resolve_candidate_files,
     resolve_docs_roots,
     run_tool,
 )
-try:
-    from skillopt.envs.sealqa.tool_runtime import custom_search
-except ImportError:
-    custom_search = None  # type: ignore[assignment]
 from skillopt.model import chat_target_messages, get_target_backend, is_target_exec_backend
 from skillopt.model.codex_harness import prepare_workspace, render_skill_md, run_target_exec
 from skillopt.prompts import load_prompt

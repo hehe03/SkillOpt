@@ -547,6 +547,7 @@ def process_one_codegen(
     mode: str = "single",
     max_turns: int = 5,
     max_completion_tokens: int = 16384,
+    task_timeout: int = 600,
     use_eval_feedback: bool = False,
     diagnostic_mode: bool = False,
     diagnostic_instruction: str = "",
@@ -659,6 +660,7 @@ def process_one_codegen(
                     skill_content=skill_content,
                     max_turns=max_turns,
                     max_output_tokens=max_completion_tokens,
+                    task_timeout=task_timeout,
                     gold_path=first_gold if use_eval_feedback else "",
                     diagnostic_mode=diagnostic_mode,
                     diagnostic_instruction=diagnostic_instruction,
@@ -673,6 +675,7 @@ def process_one_codegen(
                     answer_position=answer_position_eval,
                     skill_content=skill_content,
                     max_output_tokens=max_completion_tokens,
+                    task_timeout=task_timeout,
                     diagnostic_mode=diagnostic_mode,
                     diagnostic_instruction=diagnostic_instruction,
                     diagnostic_trace_context=diagnostic_trace_context,
@@ -810,10 +813,10 @@ def run_spreadsheet_batch_codegen(
     Args:
         mode: "single" or "multi".
         task_timeout: Hard per-task timeout in seconds at the future level.
-            0 = auto (single: 300s, multi: 600s).
+            0 or negative disables the per-task timeout.
     """
-    if task_timeout <= 0:
-        task_timeout = 300 if mode == "single" else 600
+    no_task_timeout = task_timeout <= 0
+    task_timeout_label = "none" if no_task_timeout else f"{task_timeout}s"
 
     os.makedirs(out_root, exist_ok=True)
 
@@ -833,7 +836,7 @@ def run_spreadsheet_batch_codegen(
     pending = [it for it in items if str(it["id"]) not in done_ids]
     print(
         f"  [spreadsheet codegen-{mode}] total={len(items)} done={len(done_ids)} "
-        f"pending={len(pending)} workers={max_api_workers} task_timeout={task_timeout}s"
+        f"pending={len(pending)} workers={max_api_workers} task_timeout={task_timeout_label}"
     )
 
     if not pending:
@@ -854,6 +857,7 @@ def run_spreadsheet_batch_codegen(
             mode,
             max_turns,
             max_completion_tokens,
+            task_timeout,
             use_eval_feedback,
             diagnostic_mode,
             diagnostic_instruction,
@@ -903,7 +907,7 @@ def run_spreadsheet_batch_codegen(
         while pending_futs:
             done, _ = wait(pending_futs, timeout=5, return_when=FIRST_COMPLETED)
             now = time.time()
-            timed_out = [
+            timed_out = [] if no_task_timeout else [
                 fut for fut in pending_futs - done
                 if str(futs[fut]["id"]) in started_at
                 and now - started_at[str(futs[fut]["id"])] >= task_timeout

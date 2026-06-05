@@ -9,7 +9,7 @@ env:
   name: livemathematicianbench
   skill_init: skillopt/envs/livemathematicianbench/skills/initial.md
   split_mode: split_dir
-  split_dir: data/ablation_splits/livemathematicianbench/2-1-7_seed42
+  split_dir: data/livemathematicianbench_split
   data_path: ""
   split_output_dir: ""
   max_turns: 1

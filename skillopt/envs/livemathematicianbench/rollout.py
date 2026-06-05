@@ -119,7 +119,7 @@ def process_one(
     diagnostic_mode: bool = False,
     diagnostic_instruction: str = "",
     diagnostic_trace_context: str = "",
-    exec_timeout: int = 300,
+    exec_timeout: int | None = 300,
     max_completion_tokens: int = 16384,
 ) -> dict:
     item_id = str(item["id"])
@@ -143,6 +143,7 @@ def process_one(
     try:
         pred_dir = os.path.join(out_root, "predictions", item_id)
         os.makedirs(pred_dir, exist_ok=True)
+        llm_timeout = int(exec_timeout) if exec_timeout and int(exec_timeout) > 0 else None
 
         if is_target_exec_backend():
             from skillopt.model import azure_openai as _llm
@@ -157,7 +158,7 @@ def process_one(
                     skill_content=skill_content,
                     item=item,
                     model=_llm.TARGET_DEPLOYMENT,
-                    timeout=exec_timeout,
+                    timeout=llm_timeout,
                     use_theorem=use_theorem,
                     use_sketch=use_sketch,
                     diagnostic_mode=diagnostic_mode if turn == 0 else False,
@@ -223,7 +224,7 @@ def process_one(
                     max_completion_tokens=max_completion_tokens,
                     retries=5,
                     stage="rollout",
-                    timeout=exec_timeout,
+                    timeout=llm_timeout,
                 )
             else:
                 refinement = (
@@ -237,7 +238,7 @@ def process_one(
                     max_completion_tokens=max_completion_tokens,
                     retries=5,
                     stage="rollout",
-                    timeout=exec_timeout,
+                    timeout=llm_timeout,
                 )
             response = resp_text
             conversation.append({"type": "message", "turn": turn + 1, "content": resp_text})
@@ -292,7 +293,7 @@ def run_batch(
     skill_content: str,
     *,
     max_turns: int = 1,
-    exec_timeout: int = 300,
+    exec_timeout: int | None = 300,
     workers: int = 64,
     max_completion_tokens: int = 16384,
     use_theorem: bool = False,
@@ -300,9 +301,14 @@ def run_batch(
     diagnostic_mode: bool = False,
     diagnostic_instruction: str = "",
     diagnostic_trace_context_by_id: dict[str, str] | None = None,
-    task_timeout: int = 600,
+    task_timeout: int | None = 600,
 ) -> list[dict]:
-    task_timeout = max(int(task_timeout), int(exec_timeout) + 60)
+    exec_timeout_value = int(exec_timeout) if exec_timeout and int(exec_timeout) > 0 else 0
+    task_timeout_value = int(task_timeout) if task_timeout and int(task_timeout) > 0 else 0
+    if exec_timeout_value <= 0 or task_timeout_value <= 0:
+        task_timeout = None
+    else:
+        task_timeout = max(task_timeout_value, exec_timeout_value + 60)
     results_path = os.path.join(out_root, "results.jsonl")
     os.makedirs(out_root, exist_ok=True)
 
@@ -385,6 +391,7 @@ def run_batch(
                 now = time.time()
                 timed_out = [
                     fut for fut in pending_futs - done
+                    if task_timeout is not None
                     if str(futs[fut]["id"]) in started_at
                     and now - started_at[str(futs[fut]["id"])] >= task_timeout
                 ]

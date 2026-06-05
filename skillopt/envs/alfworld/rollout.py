@@ -11,7 +11,6 @@ import json
 import os
 import re
 import sys
-import time
 import concurrent.futures
 import numpy as np
 
@@ -206,7 +205,6 @@ def run_alfworld_batch(
 
         # Call API in parallel
         actions = ["None"] * env_num
-        action_timeout = 180
 
         def call_api(idx):
             try:
@@ -216,7 +214,7 @@ def run_alfworld_batch(
                     max_completion_tokens=max_completion_tokens,
                     retries=5,
                     stage="rollout",
-                    timeout=120,
+                    timeout=None,
                 )
                 response = (response or "").strip()
                 if not response:
@@ -230,7 +228,6 @@ def run_alfworld_batch(
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_api_workers)
         try:
             futures = {executor.submit(call_api, i): i for i in active_indices}
-            started_at = {future: time.time() for future in futures}
             pending_futs = set(futures)
             while pending_futs:
                 done, _ = concurrent.futures.wait(
@@ -238,11 +235,6 @@ def run_alfworld_batch(
                     timeout=5,
                     return_when=concurrent.futures.FIRST_COMPLETED,
                 )
-                now = time.time()
-                timed_out = [
-                    future for future in pending_futs - done
-                    if now - started_at[future] >= action_timeout
-                ]
                 for future in done:
                     pending_futs.remove(future)
                     try:
@@ -251,10 +243,6 @@ def run_alfworld_batch(
                         idx = futures[future]
                         response = "<think>error</think><action>look</action>"
                     actions[idx] = response
-                for future in timed_out:
-                    pending_futs.remove(future)
-                    idx = futures[future]
-                    actions[idx] = "<think>api timeout</think><action>look</action>"
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 

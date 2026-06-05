@@ -34,7 +34,7 @@ def _strip_path_assignments(code: str) -> str:
     return _PATH_ASSIGN_RE.sub("", code)
 
 
-def run_generated_code(code: str, input_path: str, output_path: str, timeout: int = 120) -> tuple[bool, str]:
+def run_generated_code(code: str, input_path: str, output_path: str, timeout: int | None = 120) -> tuple[bool, str]:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cleaned = _strip_path_assignments(code)
     indented = textwrap.indent(cleaned, "    ")
@@ -51,7 +51,7 @@ def run_generated_code(code: str, input_path: str, output_path: str, timeout: in
             [sys.executable, tmp],
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=timeout if timeout and timeout > 0 else None,
         )
         if proc.returncode != 0:
             return False, (proc.stdout + "\n" + proc.stderr).strip()

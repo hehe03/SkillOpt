@@ -6,6 +6,7 @@ from typing import Any
 
 from skillopt.model import azure_openai as _openai
 from skillopt.model import claude_backend as _claude
+from skillopt.model import minimax_backend as _minimax
 from skillopt.model import qwen_backend as _qwen
 from skillopt.model.backend_config import (  # noqa: F401
     configure_claude_code_exec,
@@ -50,6 +51,10 @@ def set_backend(name: str | None) -> str:
         set_optimizer_backend("openai_chat")
         set_target_backend("qwen_chat")
         return "qwen_chat"
+    if normalized in {"minimax", "minimax_chat"}:
+        set_optimizer_backend("openai_chat")
+        set_target_backend("minimax_chat")
+        return "minimax_chat"
     raise ValueError(f"Unsupported legacy backend: {name!r}")
 
 
@@ -59,12 +64,16 @@ def get_backend_name() -> str:
     target = get_target_backend()
     if optimizer == "claude_chat" and target == "claude_chat":
         return "claude_chat"
+    if optimizer == "qwen_chat" and target == "qwen_chat":
+        return "qwen_chat"
     if optimizer == "openai_chat" and target == "openai_chat":
         return "azure_openai"
     if optimizer == "openai_chat" and target == "codex_exec":
         return "codex"
     if optimizer == "openai_chat" and target == "qwen_chat":
         return "qwen_chat"
+    if optimizer == "openai_chat" and target == "minimax_chat":
+        return "minimax_chat"
     return f"{optimizer}+{target}"
 
 
@@ -84,6 +93,16 @@ def chat_optimizer(
             max_completion_tokens=max_completion_tokens,
             retries=retries,
             stage=stage,
+            timeout=timeout,
+        )
+    if get_optimizer_backend() == "qwen_chat":
+        return _qwen.chat_optimizer(
+            system=system,
+            user=user,
+            max_completion_tokens=max_completion_tokens,
+            retries=retries,
+            stage=stage,
+            reasoning_effort=reasoning_effort,
             timeout=timeout,
         )
     return _openai.chat_optimizer(
@@ -124,9 +143,18 @@ def chat_target(
             stage=stage,
             reasoning_effort=reasoning_effort,
         )
+    if get_target_backend() == "minimax_chat":
+        return _minimax.chat_target(
+            system=system,
+            user=user,
+            max_completion_tokens=max_completion_tokens,
+            retries=retries,
+            stage=stage,
+            reasoning_effort=reasoning_effort,
+        )
     if not is_target_chat_backend():
         raise NotImplementedError(
-            "chat_target is only supported with target_backend=openai_chat, claude_chat, or qwen_chat. "
+            "chat_target is only supported with target_backend=openai_chat, claude_chat, qwen_chat, or minimax_chat. "
             "Exec backends are handled in environment-specific rollout code."
         )
     return _openai.chat_target(
@@ -158,6 +186,18 @@ def chat_optimizer_messages(
             max_completion_tokens=max_completion_tokens,
             retries=retries,
             stage=stage,
+            tools=tools,
+            tool_choice=tool_choice,
+            return_message=return_message,
+            timeout=timeout,
+        )
+    if get_optimizer_backend() == "qwen_chat":
+        return _qwen.chat_optimizer_messages(
+            messages=messages,
+            max_completion_tokens=max_completion_tokens,
+            retries=retries,
+            stage=stage,
+            reasoning_effort=reasoning_effort,
             tools=tools,
             tool_choice=tool_choice,
             return_message=return_message,
@@ -210,9 +250,20 @@ def chat_target_messages(
             tool_choice=tool_choice,
             return_message=return_message,
         )
+    if get_target_backend() == "minimax_chat":
+        return _minimax.chat_target_messages(
+            messages=messages,
+            max_completion_tokens=max_completion_tokens,
+            retries=retries,
+            stage=stage,
+            reasoning_effort=reasoning_effort,
+            tools=tools,
+            tool_choice=tool_choice,
+            return_message=return_message,
+        )
     if not is_target_chat_backend():
         raise NotImplementedError(
-            "chat_target_messages is only supported with target_backend=openai_chat, claude_chat, or qwen_chat. "
+            "chat_target_messages is only supported with target_backend=openai_chat, claude_chat, qwen_chat, or minimax_chat. "
             "Exec backends are handled in environment-specific rollout code."
         )
     return _openai.chat_target_messages(
@@ -301,6 +352,17 @@ def get_token_summary() -> dict:
         summary[stage]["prompt_tokens"] += values["prompt_tokens"]
         summary[stage]["completion_tokens"] += values["completion_tokens"]
         summary[stage]["total_tokens"] += values["total_tokens"]
+    minimax_summary = _minimax.get_token_summary()
+    for stage, values in minimax_summary.items():
+        if stage == "_total":
+            continue
+        if stage not in summary:
+            summary[stage] = values
+            continue
+        summary[stage]["calls"] += values["calls"]
+        summary[stage]["prompt_tokens"] += values["prompt_tokens"]
+        summary[stage]["completion_tokens"] += values["completion_tokens"]
+        summary[stage]["total_tokens"] += values["total_tokens"]
     total = {
         "calls": 0,
         "prompt_tokens": 0,
@@ -322,6 +384,7 @@ def reset_token_tracker() -> None:
     _openai.reset_token_tracker()
     _claude.reset_token_tracker()
     _qwen.reset_token_tracker()
+    _minimax.reset_token_tracker()
 
 
 def configure_azure_openai(
@@ -375,8 +438,51 @@ def configure_qwen_chat(
     timeout_seconds: float | str | None = None,
     max_tokens: int | str | None = None,
     enable_thinking: bool | str | None = None,
+    optimizer_base_url: str | None = None,
+    optimizer_api_key: str | None = None,
+    optimizer_temperature: float | str | None = None,
+    optimizer_timeout_seconds: float | str | None = None,
+    optimizer_max_tokens: int | str | None = None,
+    optimizer_enable_thinking: bool | str | None = None,
+    target_base_url: str | None = None,
+    target_api_key: str | None = None,
+    target_temperature: float | str | None = None,
+    target_timeout_seconds: float | str | None = None,
+    target_max_tokens: int | str | None = None,
+    target_enable_thinking: bool | str | None = None,
 ) -> None:
     _qwen.configure_qwen_chat(
+        base_url=base_url,
+        api_key=api_key,
+        temperature=temperature,
+        timeout_seconds=timeout_seconds,
+        max_tokens=max_tokens,
+        enable_thinking=enable_thinking,
+        optimizer_base_url=optimizer_base_url,
+        optimizer_api_key=optimizer_api_key,
+        optimizer_temperature=optimizer_temperature,
+        optimizer_timeout_seconds=optimizer_timeout_seconds,
+        optimizer_max_tokens=optimizer_max_tokens,
+        optimizer_enable_thinking=optimizer_enable_thinking,
+        target_base_url=target_base_url,
+        target_api_key=target_api_key,
+        target_temperature=target_temperature,
+        target_timeout_seconds=target_timeout_seconds,
+        target_max_tokens=target_max_tokens,
+        target_enable_thinking=target_enable_thinking,
+    )
+
+
+def configure_minimax_chat(
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    temperature: float | str | None = None,
+    timeout_seconds: float | str | None = None,
+    max_tokens: int | str | None = None,
+    enable_thinking: bool | str | None = None,
+) -> None:
+    _minimax.configure_minimax_chat(
         base_url=base_url,
         api_key=api_key,
         temperature=temperature,
@@ -390,14 +496,17 @@ def set_reasoning_effort(effort: str | None) -> None:
     _openai.set_reasoning_effort(effort)
     _claude.set_reasoning_effort(effort)
     _qwen.set_reasoning_effort(effort)
+    _minimax.set_reasoning_effort(effort)
 
 
 def set_target_deployment(deployment: str) -> None:
     _openai.set_target_deployment(deployment)
     _claude.set_target_deployment(deployment)
     _qwen.set_target_deployment(deployment)
+    _minimax.set_target_deployment(deployment)
 
 
 def set_optimizer_deployment(deployment: str) -> None:
     _openai.set_optimizer_deployment(deployment)
     _claude.set_optimizer_deployment(deployment)
+    _qwen.set_optimizer_deployment(deployment)

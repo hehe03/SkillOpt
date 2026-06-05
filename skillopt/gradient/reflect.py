@@ -490,7 +490,7 @@ def run_minibatch_reflect(
     os.makedirs(patches_dir, exist_ok=True)
 
     # Separate failure / success
-    failures = [r for r in results if not r.get("hard")]
+    failures = [r for r in results if not r.get("hard") or float(r.get("hard", 0)) < 1e-9]
     successes = [r for r in results if r.get("hard")] if not failure_only else []
 
     failures = _shuffle_for_minibatch(failures, random_seed)
