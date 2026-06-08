@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -12,6 +14,10 @@ from pathlib import Path
 
 _LLM_FILE_LOCK = threading.Lock()
 _LLM_FILE_STEP = 0
+_ACTIVE_PROCESSES: set[subprocess.Popen] = set()
+_ACTIVE_PROCESS_LOCK = threading.Lock()
+_CLEANUP_REGISTERED = False
+_PREVIOUS_SIGNAL_HANDLERS: dict[int, object] = {}
 
 
 def _env_first(*names: str, default: str = "") -> str:
@@ -73,6 +79,122 @@ def _resolve_opencode_cli() -> str | None:
 
 def _requested_backend() -> str:
     return _env_first("OPT_IN_HARNESS_AGENT_BACKEND", default="auto").lower() or "auto"
+
+
+def _hide_subprocess_window() -> bool:
+    value = _env_first("OPT_IN_HARNESS_HIDE_SUBPROCESS_WINDOW", default="1").lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _subprocess_creationflags(existing: int = 0) -> int:
+    flags = int(existing or 0)
+    if os.name == "nt" and _hide_subprocess_window():
+        flags |= subprocess.CREATE_NO_WINDOW
+    return flags
+
+
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                creationflags=_subprocess_creationflags(),
+            )
+            return
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def _cleanup_active_processes() -> None:
+    with _ACTIVE_PROCESS_LOCK:
+        processes = list(_ACTIVE_PROCESSES)
+    for proc in processes:
+        _terminate_process_tree(proc)
+
+
+def _handle_parent_exit_signal(signum, frame) -> None:
+    del frame
+    _cleanup_active_processes()
+    previous = _PREVIOUS_SIGNAL_HANDLERS.get(signum)
+    if callable(previous):
+        previous(signum, None)
+        return
+    if signum == getattr(signal, "SIGINT", None):
+        raise KeyboardInterrupt
+    raise SystemExit(128 + int(signum))
+
+
+def _ensure_process_cleanup_registered() -> None:
+    global _CLEANUP_REGISTERED
+    if _CLEANUP_REGISTERED:
+        return
+    _CLEANUP_REGISTERED = True
+    atexit.register(_cleanup_active_processes)
+    for signum in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+        if signum is None:
+            continue
+        try:
+            _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
+            signal.signal(signum, _handle_parent_exit_signal)
+        except (OSError, ValueError):
+            pass
+
+
+def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
+    _ensure_process_cleanup_registered()
+    input_data = kwargs.pop("input", None)
+    timeout = kwargs.pop("timeout", None)
+    check = bool(kwargs.pop("check", False))
+    capture_output = bool(kwargs.pop("capture_output", False))
+    if capture_output:
+        if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
+            raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    kwargs["creationflags"] = _subprocess_creationflags(kwargs.get("creationflags", 0))
+
+    proc = subprocess.Popen(*args, **kwargs)
+    with _ACTIVE_PROCESS_LOCK:
+        _ACTIVE_PROCESSES.add(proc)
+    try:
+        try:
+            stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process_tree(proc)
+            stdout, stderr = proc.communicate()
+            exc.output = stdout
+            exc.stdout = stdout
+            exc.stderr = stderr
+            raise
+        except BaseException:
+            _terminate_process_tree(proc)
+            raise
+        completed = subprocess.CompletedProcess(
+            args=proc.args,
+            returncode=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        if check and completed.returncode:
+            raise subprocess.CalledProcessError(
+                completed.returncode,
+                completed.args,
+                output=completed.stdout,
+                stderr=completed.stderr,
+            )
+        return completed
+    finally:
+        with _ACTIVE_PROCESS_LOCK:
+            _ACTIVE_PROCESSES.discard(proc)
 
 
 def _format_command_arg(value: str, variables: dict[str, str]) -> str:
@@ -151,7 +273,7 @@ def _run_custom_agent_command(
             raise ValueError("OPT_IN_HARNESS_AGENT_COMMAND_JSON must be a JSON string array")
         command = [_format_command_arg(arg, variables) for arg in raw_command]
         stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_json else None
-        proc = subprocess.run(
+        proc = _run_subprocess(
             command,
             input=stdin_prompt,
             text=True,
@@ -165,7 +287,7 @@ def _run_custom_agent_command(
     else:
         command_text = _format_command_arg(command_shell, variables)
         stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_shell else None
-        proc = subprocess.run(
+        proc = _run_subprocess(
             command_text,
             input=stdin_prompt,
             text=True,
@@ -226,7 +348,7 @@ def _run_codex_chat(
             str(output_path),
             "-",
         ]
-        proc = subprocess.run(
+        proc = _run_subprocess(
             command,
             input=prompt,
             text=True,
@@ -283,7 +405,7 @@ def _run_nga_chat(
         "--file",
         str(prompt_path),
     ]
-    proc = subprocess.run(
+    proc = _run_subprocess(
         command,
         text=True,
         capture_output=True,
@@ -358,7 +480,7 @@ def _run_opencode_chat(
     agent = _env_first("OPT_IN_HARNESS_OPENCODE_AGENT")
     if agent:
         command.extend(["--agent", agent])
-    proc = subprocess.run(
+    proc = _run_subprocess(
         command,
         text=True,
         capture_output=True,
