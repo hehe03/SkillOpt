@@ -36,9 +36,11 @@ env:
   split_dir: opt-in-harness/workspace/<skill_name>/data/<split_name>
   data_path: ""
   out_root: ""
+  agent_backend: nga   # 可选：指定使用 nga / opencode / codex
 ```
 
 `env.out_root` 通常保持为空，由训练入口自动生成时间戳目录。
+`env.agent_backend` 可直接在配置中指定 harness 后端；如果未填写，则可通过环境变量 `OPT_IN_HARNESS_AGENT_BACKEND` 指定，或由入口自动检测。
 
 ## harness 调用入口
 
@@ -52,18 +54,29 @@ run_agent_chat(...)
 路由顺序：
 
 1. 如果配置了 `OPT_IN_HARNESS_AGENT_COMMAND_JSON` 或 `OPT_IN_HARNESS_AGENT_COMMAND`，使用自定义 harness 命令。
-2. 如果 `OPT_IN_HARNESS_AGENT_BACKEND=nga`，使用 Nga CLI。
-3. 如果 `OPT_IN_HARNESS_AGENT_BACKEND=opencode`，使用 opencode CLI。
-4. 如果 `OPT_IN_HARNESS_AGENT_BACKEND=codex`，使用 Codex CLI。
+2. 如果配置文件中写了 `env.agent_backend: nga`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=nga`，使用 Nga CLI。
+3. 如果配置文件中写了 `env.agent_backend: opencode`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=opencode`，使用 opencode CLI。
+4. 如果配置文件中写了 `env.agent_backend: codex`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=codex`，使用 Codex CLI。
 5. 如果未设置或为 `auto`，依次检测 Nga、opencode、Codex。
 6. 如果都不可用，直接报错。
 
 ### Nga
 
+推荐直接在 workspace 配置中指定：
+
+```yaml
+env:
+  agent_backend: nga
+```
+
+也可以用 PowerShell 环境变量临时覆盖：
+
 ```powershell
 $env:OPT_IN_HARNESS_AGENT_BACKEND = "nga"
 $env:NGA_CLI_BIN = "C:\Users\<user>\OCHOME\nga.cmd"
 ```
+
+如果 Nga 已在 `PATH`、`OCHOME` 或默认 `~/OCHOME` 中，可不设置 `NGA_CLI_BIN`。
 
 调用协议：
 
@@ -112,10 +125,15 @@ $env:OPT_IN_HARNESS_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--p
 ```powershell
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-$env:OPT_IN_HARNESS_AGENT_BACKEND = "nga"
 
 conda run -n llm python opt-in-harness/train/train_in_harness.py `
   --config opt-in-harness/workspace/<skill_name>/configs/default.yaml
+```
+
+如果配置文件没有写 `env.agent_backend`，也可以在运行前临时指定：
+
+```powershell
+$env:OPT_IN_HARNESS_AGENT_BACKEND = "nga"
 ```
 
 默认输出目录：
@@ -152,6 +170,7 @@ Test-Path .\opt-in-harness\workspace\<skill_name>\outputs\<run>\summary.json
 本仓库是 Microsoft SkillOpt。请使用 opt-in-harness 中的通用流程优化指定 workspace。
 先阅读 opt-in-harness/HARNESS_GUIDE.md；如果 workspace 尚未准备好，先阅读 opt-in-harness/SKILL_PREP_GUIDE.md。
 使用 harness 自带大模型，优先设置 OPT_IN_HARNESS_AGENT_BACKEND=nga。
+也可以在配置文件中设置 env.agent_backend: nga。
 运行入口是 opt-in-harness/train/train_in_harness.py。
 配置文件是 opt-in-harness/workspace/<skill_name>/configs/default.yaml。
 训练输出放在 opt-in-harness/workspace/<skill_name>/outputs/<skill_name>_<time>。

@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -86,6 +87,11 @@ def _hide_subprocess_window() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def _stream_subprocess_output() -> bool:
+    value = _env_first("OPT_IN_HARNESS_STREAM_SUBPROCESS_OUTPUT", default="0").lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def _subprocess_creationflags(existing: int = 0) -> int:
     flags = int(existing or 0)
     if os.name == "nt" and _hide_subprocess_window():
@@ -159,6 +165,87 @@ def _ensure_process_cleanup_registered() -> None:
             pass
 
 
+def _write_stream(target, chunk) -> None:
+    if chunk in (None, b"", ""):
+        return
+    try:
+        target.write(chunk)
+    except TypeError:
+        target.write(chunk.decode("utf-8", errors="replace"))
+    target.flush()
+
+
+def _read_pipe_to_buffer(pipe, target, chunks: list) -> None:
+    try:
+        while True:
+            chunk = pipe.readline()
+            if not chunk:
+                break
+            chunks.append(chunk)
+            _write_stream(target, chunk)
+    finally:
+        try:
+            pipe.close()
+        except Exception:
+            pass
+
+
+def _join_chunks(chunks: list, *, text_mode: bool):
+    if text_mode:
+        return "".join(str(chunk) for chunk in chunks)
+    return b"".join(chunks)
+
+
+def _communicate_with_streaming(proc: subprocess.Popen, input_data, timeout, *, text_mode: bool):
+    stdout_chunks: list = []
+    stderr_chunks: list = []
+    threads: list[threading.Thread] = []
+    if proc.stdout is not None:
+        thread = threading.Thread(
+            target=_read_pipe_to_buffer,
+            args=(proc.stdout, sys.stdout, stdout_chunks),
+            daemon=True,
+        )
+        thread.start()
+        threads.append(thread)
+    if proc.stderr is not None:
+        thread = threading.Thread(
+            target=_read_pipe_to_buffer,
+            args=(proc.stderr, sys.stderr, stderr_chunks),
+            daemon=True,
+        )
+        thread.start()
+        threads.append(thread)
+
+    if input_data is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(input_data)
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(proc)
+        proc.wait()
+        for thread in threads:
+            thread.join(timeout=1)
+        stdout = _join_chunks(stdout_chunks, text_mode=text_mode)
+        stderr = _join_chunks(stderr_chunks, text_mode=text_mode)
+        exc.output = stdout
+        exc.stdout = stdout
+        exc.stderr = stderr
+        raise
+
+    for thread in threads:
+        thread.join()
+    return (
+        _join_chunks(stdout_chunks, text_mode=text_mode),
+        _join_chunks(stderr_chunks, text_mode=text_mode),
+    )
+
+
 def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
     _ensure_process_cleanup_registered()
     input_data = kwargs.pop("input", None)
@@ -170,6 +257,8 @@ def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
             raise ValueError("stdout and stderr arguments may not be used with capture_output.")
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
+    if input_data is not None and kwargs.get("stdin") is None:
+        kwargs["stdin"] = subprocess.PIPE
     kwargs["creationflags"] = _subprocess_creationflags(kwargs.get("creationflags", 0))
     kwargs["startupinfo"] = _subprocess_startupinfo(kwargs.get("startupinfo"))
 
@@ -178,7 +267,18 @@ def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
         _ACTIVE_PROCESSES.add(proc)
     try:
         try:
-            stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
+            should_stream = _stream_subprocess_output() and (
+                kwargs.get("stdout") == subprocess.PIPE or kwargs.get("stderr") == subprocess.PIPE
+            )
+            if should_stream:
+                stdout, stderr = _communicate_with_streaming(
+                    proc,
+                    input_data,
+                    timeout,
+                    text_mode=bool(kwargs.get("text") or kwargs.get("universal_newlines")),
+                )
+            else:
+                stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             _terminate_process_tree(proc)
             stdout, stderr = proc.communicate()
