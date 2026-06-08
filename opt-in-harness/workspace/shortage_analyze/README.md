@@ -20,6 +20,7 @@ shortage_analyze/
     adapter.py                      # SkillOpt EnvAdapter
     evaluator.py                    # 多标签评估和错误明细
     rollout.py                      # 当前 Skill -> Python 脚本 -> 批量预测
+    prompts/                        # reflect 和脚本生成 prompt
     tests/                          # 局部测试；harness_chat_test.py 是文件协议 demo
   outputs/                          # 每次训练 run 和最终导出结果
 ```
@@ -37,6 +38,9 @@ init-skill/analyze_shortage.py
 train/adapter.py
 train/evaluator.py
 train/rollout.py
+train/prompts/analyst_error.md
+train/prompts/analyst_success.md
+train/prompts/script_codegen.md
 ```
 
 ## 运行顺序
@@ -70,5 +74,7 @@ conda run -n llm python opt-in-harness/workspace/shortage_analyze/process/compar
 `shortage_analyze/train/adapter.py`、`evaluator.py` 和 `rollout.py` 可以作为新 skill 的参考，但不建议直接放到公共 `opt-in-harness/train/`。新 skill 应在自己的 `workspace/<skill_name>/train/` 下实现同名职责，并在配置中通过 `env.adapter_module` 指向自己的 adapter。
 
 `shortage_analyze` 的 split 是标准 `items.json` 格式，因此 dataloader 已复用公共 `opt-in-harness/train/split_items_loader.py`。
+
+`train/prompts/` 保存任务专属 prompt：失败样本分析、成功样本分析和 Skill 文档转 Python 脚本。Python 代码只负责读取这些 prompt 文件。
 
 `train/tests/harness_chat_test.py` 不是训练流程依赖项，只是验证 Nga 文件协议的示例。新 skill 不需要复制它，除非也想保留一个本地 harness smoke test。

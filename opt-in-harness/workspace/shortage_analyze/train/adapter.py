@@ -15,6 +15,12 @@ if str(COMMON_TRAIN_ROOT) not in sys.path:
 from rollout import run_batch
 from split_items_loader import StandardItemsDataLoader
 
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
+
+def _read_prompt(name: str) -> str:
+    return (PROMPTS_DIR / name).read_text(encoding="utf-8-sig").strip()
+
 
 class ShortageAnalyzeAdapter(EnvAdapter):
     def __init__(
@@ -136,54 +142,7 @@ class ShortageAnalyzeAdapter(EnvAdapter):
         return ["shortage_analyze"]
 
     def get_error_minibatch_prompt(self) -> str:
-        return (
-            "You will be given multiple failed shortage_analyze trajectories and the current skill document.\n"
-            "Each item is a multi-label classification case. The final gate metric is sample-level accuracy: "
-            "a sample is correct only when the predicted label set exactly equals the gold label set.\n"
-            "However, your analysis must be label-level. Use the Missing labels, Extra labels, and "
-            "Per-label comparison fields to identify which individual L2 rules caused false negatives "
-            "or false positives.\n\n"
-            "Propose concise, generalizable edits to the skill rules. Do not hardcode sample IDs, row indexes, "
-            "or dataset-specific labels. Only improve the skill document's decision rules, field handling, "
-            "and output constraints.\n\n"
-            "Respond ONLY with valid JSON in this shape:\n"
-            "{\n"
-            "  \"batch_size\": <number>,\n"
-            "  \"failure_summary\": [{\"failure_type\": \"<type>\", \"count\": <int>, \"description\": \"<one-line>\"}],\n"
-            "  \"patch\": {\n"
-            "    \"reasoning\": \"<why these edits address label-level FP/FN patterns>\",\n"
-            "    \"edits\": [\n"
-            "      {\"op\": \"append\", \"content\": \"<markdown>\"},\n"
-            "      {\"op\": \"insert_after\", \"target\": \"<exact text>\", \"content\": \"<markdown>\"},\n"
-            "      {\"op\": \"replace\", \"target\": \"<exact text>\", \"content\": \"<replacement>\"},\n"
-            "      {\"op\": \"delete\", \"target\": \"<exact text>\"}\n"
-            "    ]\n"
-            "  }\n"
-            "}\n"
-            "Use an empty `edits` list if no patch is warranted."
-        )
+        return _read_prompt("analyst_error.md")
 
     def get_success_minibatch_prompt(self) -> str:
-        return (
-            "You will be given multiple successful shortage_analyze trajectories and the current skill document.\n"
-            "This is a multi-label classification task. Preserve behavior that correctly predicts every "
-            "individual label in the gold label set and avoids extra labels. Use the Per-label comparison "
-            "fields to identify robust rule patterns worth keeping or clarifying.\n\n"
-            "Only propose edits when they add general, non-duplicative guidance to the skill. Do not hardcode "
-            "sample IDs, row indexes, or dataset-specific answers.\n\n"
-            "Respond ONLY with valid JSON in this shape:\n"
-            "{\n"
-            "  \"batch_size\": <number>,\n"
-            "  \"success_summary\": [{\"pattern\": \"<pattern>\", \"count\": <int>, \"description\": \"<one-line>\"}],\n"
-            "  \"patch\": {\n"
-            "    \"reasoning\": \"<why these edits preserve useful label-level behavior>\",\n"
-            "    \"edits\": [\n"
-            "      {\"op\": \"append\", \"content\": \"<markdown>\"},\n"
-            "      {\"op\": \"insert_after\", \"target\": \"<exact text>\", \"content\": \"<markdown>\"},\n"
-            "      {\"op\": \"replace\", \"target\": \"<exact text>\", \"content\": \"<replacement>\"},\n"
-            "      {\"op\": \"delete\", \"target\": \"<exact text>\"}\n"
-            "    ]\n"
-            "  }\n"
-            "}\n"
-            "Use an empty `edits` list if no patch is warranted."
-        )
+        return _read_prompt("analyst_success.md")

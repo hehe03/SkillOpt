@@ -1,66 +1,48 @@
-# 新 harness 接手指南
+# harness 优化运行指南
 
-本文档面向 Codex、Nga、opencode 或其它 Agent harness。读完后，应能在 `opt-in-harness` 新结构下继续运行 SkillOpt 优化。
+本文档面向 Codex、Nga、opencode 或其它 Agent harness。它只说明如何在已经准备好的 `workspace/<skill_name>/` 上运行 SkillOpt 优化；新 skill 和数据如何准备，请先阅读 `opt-in-harness/SKILL_PREP_GUIDE.md`。
 
-## 总体目标
+## 前提
 
-使用当前 Agent harness 自带的大模型运行 SkillOpt，不在本项目中额外配置 LLM。当前已接入训练流程的 workspace 是：
-
-```text
-opt-in-harness/workspace/shortage_analyze/
-```
-
-其它 workspace，例如 `tracesorter-rules` 和 `tracesorter-skill`，暂时不要改动。
-
-## 关键约束
-
-1. `opt-in-harness/train` 只放通用训练入口和 harness 调用代码。
-2. `opt-in-harness/train` 不放具体业务数据处理脚本，也不放具体 skill 的 adapter、rollout 或 evaluator。
-3. `opt-in-harness/workspace/<skill>` 放待优化 skill 的配置、数据、初始 skill、输出、`process/` 和 `train/` 适配层。
-4. 优化前默认已经完成数据处理和 split 构建。
-5. 训练阶段使用 `data/shortage_analyze_split` 中的数据，以及 `init-skill` 中的初始 skill 和初始脚本。
-6. 测试集比较在训练结束后由 `workspace/shortage_analyze/process/compare_test_accuracy.py` 单独运行。
-
-## shortage_analyze 路径
-
-必须存在：
+待优化 workspace 已经包含：
 
 ```text
-opt-in-harness/workspace/shortage_analyze/configs/default.yaml
-opt-in-harness/workspace/shortage_analyze/data/shortage_analyze_split/train/items.json
-opt-in-harness/workspace/shortage_analyze/data/shortage_analyze_split/val/items.json
-opt-in-harness/workspace/shortage_analyze/data/shortage_analyze_split/test/items.json
-opt-in-harness/workspace/shortage_analyze/init-skill/initial_skill.md
-opt-in-harness/workspace/shortage_analyze/init-skill/analyze_shortage.py
-opt-in-harness/workspace/shortage_analyze/train/adapter.py
-opt-in-harness/workspace/shortage_analyze/train/evaluator.py
-opt-in-harness/workspace/shortage_analyze/train/rollout.py
+opt-in-harness/workspace/<skill_name>/configs/default.yaml
+opt-in-harness/workspace/<skill_name>/data/<split_name>/train/items.json
+opt-in-harness/workspace/<skill_name>/data/<split_name>/val/items.json
+opt-in-harness/workspace/<skill_name>/init-skill/initial_skill.md
+opt-in-harness/workspace/<skill_name>/train/adapter.py
+opt-in-harness/workspace/<skill_name>/train/evaluator.py
+opt-in-harness/workspace/<skill_name>/train/rollout.py
 ```
 
-如果这些文件已存在，直接开始优化，不要重复执行数据处理或初始 skill 构建。
+如果该 skill 使用脚本化 rollout，还应有：
 
-配置中的关键路径应为：
+```text
+opt-in-harness/workspace/<skill_name>/init-skill/<initial_executor>.py
+opt-in-harness/workspace/<skill_name>/train/prompts/script_codegen.md
+```
+
+配置中的关键字段为：
 
 ```yaml
 env:
-  name: shortage_analyze
-  workspace_root: opt-in-harness/workspace/shortage_analyze
-  adapter_module: opt-in-harness/workspace/shortage_analyze/train/adapter.py
-  adapter_class: ShortageAnalyzeAdapter
-  skill_init: opt-in-harness/workspace/shortage_analyze/init-skill/initial_skill.md
+  name: <skill_name>
+  workspace_root: opt-in-harness/workspace/<skill_name>
+  adapter_module: opt-in-harness/workspace/<skill_name>/train/adapter.py
+  adapter_class: <AdapterClassName>
+  skill_init: opt-in-harness/workspace/<skill_name>/init-skill/initial_skill.md
   split_mode: split_dir
-  split_dir: opt-in-harness/workspace/shortage_analyze/data/shortage_analyze_split
+  split_dir: opt-in-harness/workspace/<skill_name>/data/<split_name>
   data_path: ""
   out_root: ""
-  initial_skill_path: opt-in-harness/workspace/shortage_analyze/init-skill/initial_skill.md
-  initial_script_path: opt-in-harness/workspace/shortage_analyze/init-skill/analyze_shortage.py
 ```
 
-`env.data_path` 必须保持为空。`env.out_root` 通常也保持为空，由训练入口自动生成。
+`env.out_root` 通常保持为空，由训练入口自动生成时间戳目录。
 
-## Harness 调用
+## harness 调用入口
 
-统一入口：
+通用调用函数位于：
 
 ```text
 opt-in-harness/train/harness_chat.py
@@ -78,17 +60,15 @@ run_agent_chat(...)
 
 ### Nga
 
-Nga 调用协议：
-
-```text
-nga run <instruction> --file <absolute_prompt_path>
-```
-
-使用 Nga：
-
 ```powershell
 $env:OPT_IN_HARNESS_AGENT_BACKEND = "nga"
 $env:NGA_CLI_BIN = "C:\Users\<user>\OCHOME\nga.cmd"
+```
+
+调用协议：
+
+```text
+nga run <instruction> --file <absolute_prompt_path>
 ```
 
 训练过程会把完整 prompt 写入：
@@ -97,7 +77,7 @@ $env:NGA_CLI_BIN = "C:\Users\<user>\OCHOME\nga.cmd"
 <out_root>/llm-files/prompt_nga_<stage>_step_<n>.md
 ```
 
-Nga 从 `--file` 指向的文件读取 prompt，响应从 `stdout` 获取，并保存为：
+响应从 `stdout` 获取，并保存为：
 
 ```text
 <out_root>/llm-files/response_nga_<stage>_step_<n>.txt
@@ -109,7 +89,7 @@ Codex 分支使用 stdin 传入完整 prompt，并通过 `--output-last-message`
 
 ### opencode
 
-opencode 分支仍保留兼容，但如果当前代理不允许文件上传，`opencode run --file` 可能出现 `proxy_uploadNotAllowed`。遇到这种情况，建议切换到 Nga 或自定义 harness 命令。
+opencode 分支保留兼容。如果当前代理不允许文件上传，`opencode run --file` 可能出现 `proxy_uploadNotAllowed`，这时建议切换到 Nga 或自定义 harness 命令。
 
 ### 自定义 harness
 
@@ -133,34 +113,18 @@ $env:OPT_IN_HARNESS_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--p
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $env:OPT_IN_HARNESS_AGENT_BACKEND = "nga"
-$env:NGA_CLI_BIN = "C:\Users\<user>\OCHOME\nga.cmd"
 
 conda run -n llm python opt-in-harness/train/train_in_harness.py `
-  --config opt-in-harness/workspace/shortage_analyze/configs/default.yaml
+  --config opt-in-harness/workspace/<skill_name>/configs/default.yaml
 ```
 
 默认输出目录：
 
 ```text
-opt-in-harness/workspace/shortage_analyze/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>/
+opt-in-harness/workspace/<skill_name>/outputs/<skill_name>_<YYYYMMDD_HHMMSS>/
 ```
 
-每次 LLM 调用都写入该 run 下的 `llm-files/`，文件名带 `step_0001`、`step_0002` 等后缀。
-
-## 训练如何执行目标 skill
-
-`shortage_analyze` 目标执行不用 LLM 逐条阅读样本。流程是：
-
-1. 初始 skill 使用 `init-skill/analyze_shortage.py`。
-2. 每轮 SkillOpt 产生新 skill 后，训练流程先让 harness 把新规则文档生成 Python 脚本。
-3. 之后用生成脚本对训练样本快速预测。
-4. 预测结果和标签比较后进入 reflect 阶段。
-
-生成脚本缓存位于：
-
-```text
-<out_root>/generated_scripts/
-```
+每次 LLM 调用都会写入该 run 下的 `llm-files/`，文件名带 `step_0001`、`step_0002` 等后缀。
 
 ## 训练输出
 
@@ -168,7 +132,7 @@ opt-in-harness/workspace/shortage_analyze/outputs/shortage_analyze_<YYYYMMDD_HHM
 
 ```text
 llm-files/              # harness prompt/response
-generated_scripts/      # 当前 skill 转换出的预测脚本
+generated_scripts/      # 可选，当前 skill 转换出的预测脚本
 steps/                  # 每步中间结果
 best_skill.md           # 当前 run 的最佳 skill
 history.json            # step 历史
@@ -179,53 +143,16 @@ summary.json            # 总结
 判断是否结束：
 
 ```powershell
-Test-Path .\opt-in-harness\workspace\shortage_analyze\outputs\<run>\summary.json
-```
-
-如果只想看前两步，可以读取 `history.json` 中前两个 step 的 accuracy、skill 路径和输出目录。
-
-## 训练后导出
-
-```powershell
-conda run -n llm python opt-in-harness/workspace/shortage_analyze/process/finalize_optimized_skill.py `
-  --skillopt-output opt-in-harness/workspace/shortage_analyze/outputs/shortage_analyze_<YYYYMMDD_HHMMSS>
-```
-
-默认导出：
-
-```text
-opt-in-harness/workspace/shortage_analyze/outputs/optimized/best/best_kill.md
-opt-in-harness/workspace/shortage_analyze/outputs/optimized/best/scripts/analyze_shortage.py
-```
-
-## 训练后测试集比较
-
-```powershell
-conda run -n llm python opt-in-harness/workspace/shortage_analyze/process/compare_test_accuracy.py
-```
-
-默认读取：
-
-```text
-测试样本：opt-in-harness/workspace/shortage_analyze/data/shortage_analyze_split/test/items.json
-优化前脚本：opt-in-harness/workspace/shortage_analyze/init-skill/analyze_shortage.py
-优化后脚本：opt-in-harness/workspace/shortage_analyze/outputs/optimized/best/scripts/analyze_shortage.py
-```
-
-默认输出：
-
-```text
-opt-in-harness/workspace/shortage_analyze/data/eval/test_accuracy_compare.json
+Test-Path .\opt-in-harness\workspace\<skill_name>\outputs\<run>\summary.json
 ```
 
 ## 给新 harness 的最短提示
 
 ```text
-本仓库是 Microsoft SkillOpt。请使用 opt-in-harness 中的流程优化 workspace/shortage_analyze。
-先阅读 opt-in-harness/HARNESS_GUIDE.md 和 opt-in-harness/README.md。
-优化前数据已处理为 split；训练使用 workspace/shortage_analyze/data/shortage_analyze_split 和 init-skill。
+本仓库是 Microsoft SkillOpt。请使用 opt-in-harness 中的通用流程优化指定 workspace。
+先阅读 opt-in-harness/HARNESS_GUIDE.md；如果 workspace 尚未准备好，先阅读 opt-in-harness/SKILL_PREP_GUIDE.md。
 使用 harness 自带大模型，优先设置 OPT_IN_HARNESS_AGENT_BACKEND=nga。
 运行入口是 opt-in-harness/train/train_in_harness.py。
-配置文件是 opt-in-harness/workspace/shortage_analyze/configs/default.yaml。
-训练输出放在 opt-in-harness/workspace/shortage_analyze/outputs/shortage_analyze_<time>。
+配置文件是 opt-in-harness/workspace/<skill_name>/configs/default.yaml。
+训练输出放在 opt-in-harness/workspace/<skill_name>/outputs/<skill_name>_<time>。
 ```

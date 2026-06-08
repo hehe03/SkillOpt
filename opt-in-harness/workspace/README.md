@@ -2,6 +2,12 @@
 
 `opt-in-harness/workspace/` 下每个一级目录对应一个待优化 skill。公共训练入口只负责加载配置和调用 SkillOpt；具体任务的数据格式、预测执行、评分方式和训练前后处理都应放在各自 workspace 内。
 
+新增 skill 时，优先阅读更完整的准备流程：
+
+```text
+opt-in-harness/SKILL_PREP_GUIDE.md
+```
+
 ## 推荐目录
 
 ```text
