@@ -93,6 +93,15 @@ def _subprocess_creationflags(existing: int = 0) -> int:
     return flags
 
 
+def _subprocess_startupinfo(existing=None):
+    if os.name != "nt" or not _hide_subprocess_window():
+        return existing
+    startupinfo = existing or subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    return startupinfo
+
+
 def _terminate_process_tree(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
@@ -104,6 +113,7 @@ def _terminate_process_tree(proc: subprocess.Popen) -> None:
                 stderr=subprocess.DEVNULL,
                 check=False,
                 creationflags=_subprocess_creationflags(),
+                startupinfo=_subprocess_startupinfo(),
             )
             return
         except Exception:
@@ -161,6 +171,7 @@ def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
     kwargs["creationflags"] = _subprocess_creationflags(kwargs.get("creationflags", 0))
+    kwargs["startupinfo"] = _subprocess_startupinfo(kwargs.get("startupinfo"))
 
     proc = subprocess.Popen(*args, **kwargs)
     with _ACTIVE_PROCESS_LOCK:
