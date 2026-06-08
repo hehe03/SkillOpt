@@ -123,7 +123,7 @@ $env:OPT_IN_HARNESS_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--p
 ## 运行优化
 
 ```powershell
-conda run -n llm python opt-in-harness/train/train_in_harness.py `
+conda run --no-capture-output -n llm python opt-in-harness/train/train_in_harness.py `
   --config opt-in-harness/workspace/<skill_name>/configs/default.yaml
 ```
 
