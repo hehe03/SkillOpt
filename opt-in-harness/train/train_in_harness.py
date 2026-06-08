@@ -300,8 +300,46 @@ def _patch_agent_harness_flat_config() -> None:
         os.environ.setdefault("OPT_IN_HARNESS_NGA_RUN_DIR", str(PROJECT_ROOT))
         os.environ.setdefault("OPT_IN_HARNESS_OPENCODE_RUN_DIR", str(PROJECT_ROOT))
 
+    def configure_agent_harness_from_config(cfg: dict) -> None:
+        agent_backend = str(cfg.get("agent_backend") or "").strip()
+        agent_command_json = str(cfg.get("agent_command_json") or "").strip()
+        agent_command = str(cfg.get("agent_command") or "").strip()
+
+        if agent_backend:
+            os.environ["OPT_IN_HARNESS_AGENT_BACKEND"] = agent_backend
+            if not agent_command_json:
+                os.environ.pop("OPT_IN_HARNESS_AGENT_COMMAND_JSON", None)
+            if not agent_command:
+                os.environ.pop("OPT_IN_HARNESS_AGENT_COMMAND", None)
+        if agent_command_json:
+            os.environ["OPT_IN_HARNESS_AGENT_COMMAND_JSON"] = agent_command_json
+        if agent_command:
+            os.environ["OPT_IN_HARNESS_AGENT_COMMAND"] = agent_command
+
+        env_mappings = {
+            "agent_use_stdin": "OPT_IN_HARNESS_AGENT_USE_STDIN",
+            "hide_subprocess_window": "OPT_IN_HARNESS_HIDE_SUBPROCESS_WINDOW",
+            "nga_cli_bin": "NGA_CLI_BIN",
+            "nga_exec_path": "NGA_EXEC_PATH",
+            "nga_instruction": "OPT_IN_HARNESS_NGA_INSTRUCTION",
+            "nga_run_dir": "OPT_IN_HARNESS_NGA_RUN_DIR",
+            "opencode_cli_bin": "OPENCODE_CLI_BIN",
+            "opencode_exec_path": "OPENCODE_EXEC_PATH",
+            "opencode_instruction": "OPT_IN_HARNESS_OPENCODE_INSTRUCTION",
+            "opencode_run_dir": "OPT_IN_HARNESS_OPENCODE_RUN_DIR",
+            "opencode_model": "OPT_IN_HARNESS_OPENCODE_MODEL",
+            "opencode_agent": "OPT_IN_HARNESS_OPENCODE_AGENT",
+            "codex_cli_bin": "CODEX_CLI_BIN",
+            "codex_exec_path": "CODEX_EXEC_PATH",
+        }
+        for cfg_key, env_key in env_mappings.items():
+            value = cfg.get(cfg_key)
+            if value is not None and str(value).strip():
+                os.environ[env_key] = str(value)
+
     def load_config_with_agent_harness(args):
         cfg = original_load_config(args)
+        configure_agent_harness_from_config(cfg)
         for key in ("model_backend", "optimizer_backend", "target_backend"):
             if str(cfg.get(key) or "").strip().lower() in {"agent_harness", "harness", "agent"}:
                 cfg[key] = "openai_chat"

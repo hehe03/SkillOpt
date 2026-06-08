@@ -46,6 +46,7 @@ env:
   data_path: ""
   split_output_dir: ""
   out_root: ""
+  agent_backend: nga
   workers: 1
   llm_timeout: 300
   max_trace_chars: 24000
