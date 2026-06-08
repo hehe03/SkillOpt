@@ -123,12 +123,11 @@ $env:OPT_IN_HARNESS_AGENT_COMMAND_JSON = '["<harness-cli>", "<subcommand>", "--p
 ## 运行优化
 
 ```powershell
-$env:PYTHONUTF8 = "1"
-$env:PYTHONIOENCODING = "utf-8"
-
 conda run -n llm python opt-in-harness/train/train_in_harness.py `
   --config opt-in-harness/workspace/<skill_name>/configs/default.yaml
 ```
+
+`train_in_harness.py` 会自动设置 `PYTHONUTF8=1` 和 `PYTHONIOENCODING=utf-8`，通常不需要在命令行里手动 export 或设置 `$env:`。
 
 如果配置文件没有写 `env.agent_backend`，也可以在运行前临时指定：
 

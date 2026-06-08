@@ -20,6 +20,8 @@ for path in (PROJECT_ROOT, OPT_ROOT, TRAIN_ROOT):
 
 def configure_windows_utf8_stdio() -> None:
     """Keep Chinese console output readable on Windows when possible."""
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
         if hasattr(stream, "reconfigure"):
