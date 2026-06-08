@@ -92,6 +92,11 @@ def _stream_subprocess_output() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _harness_log(message: str) -> None:
+    if _stream_subprocess_output():
+        print(message, flush=True)
+
+
 def _subprocess_creationflags(existing: int = 0) -> int:
     flags = int(existing or 0)
     if os.name == "nt" and _hide_subprocess_window():
@@ -384,6 +389,9 @@ def _run_custom_agent_command(
             raise ValueError("OPT_IN_HARNESS_AGENT_COMMAND_JSON must be a JSON string array")
         command = [_format_command_arg(arg, variables) for arg in raw_command]
         stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_json else None
+        _harness_log(
+            f"[harness/custom] start stage={stage} prompt={prompt_path} output={output_path}"
+        )
         proc = _run_subprocess(
             command,
             input=stdin_prompt,
@@ -398,6 +406,9 @@ def _run_custom_agent_command(
     else:
         command_text = _format_command_arg(command_shell, variables)
         stdin_prompt = prompt if allow_stdin and "{prompt_file}" not in command_shell else None
+        _harness_log(
+            f"[harness/custom] start stage={stage} prompt={prompt_path} output={output_path}"
+        )
         proc = _run_subprocess(
             command_text,
             input=stdin_prompt,
@@ -422,6 +433,7 @@ def _run_custom_agent_command(
         raise RuntimeError("custom harness command returned an empty response")
     if not output_path.exists():
         output_path.write_text(response, encoding="utf-8")
+    _harness_log(f"[harness/custom] done stage={stage} chars={len(response)}")
     return response
 
 
@@ -459,6 +471,7 @@ def _run_codex_chat(
             str(output_path),
             "-",
         ]
+        _harness_log(f"[harness/codex] start cwd={cwd or os.getcwd()} output={output_path}")
         proc = _run_subprocess(
             command,
             input=prompt,
@@ -476,6 +489,7 @@ def _run_codex_chat(
         response = response or (proc.stdout or "").strip()
         if not response:
             raise RuntimeError("Codex returned an empty final message")
+        _harness_log(f"[harness/codex] done chars={len(response)}")
         return response
 
 
@@ -516,6 +530,7 @@ def _run_nga_chat(
         "--file",
         str(prompt_path),
     ]
+    _harness_log(f"[harness/nga] start stage={stage} prompt={prompt_path}")
     proc = _run_subprocess(
         command,
         text=True,
@@ -536,6 +551,7 @@ def _run_nga_chat(
         output_path.write_text(detail, encoding="utf-8")
         raise RuntimeError(detail[:4000] or "Nga returned an empty response")
     output_path.write_text(response, encoding="utf-8")
+    _harness_log(f"[harness/nga] done stage={stage} chars={len(response)}")
     return response
 
 
@@ -591,6 +607,7 @@ def _run_opencode_chat(
     agent = _env_first("OPT_IN_HARNESS_OPENCODE_AGENT")
     if agent:
         command.extend(["--agent", agent])
+    _harness_log(f"[harness/opencode] start stage={stage} prompt={prompt_path}")
     proc = _run_subprocess(
         command,
         text=True,
@@ -609,6 +626,7 @@ def _run_opencode_chat(
     if not response:
         raise RuntimeError("opencode returned an empty response")
     output_path.write_text(response, encoding="utf-8")
+    _harness_log(f"[harness/opencode] done stage={stage} chars={len(response)}")
     return response
 
 
