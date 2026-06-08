@@ -1,0 +1,15 @@
+{
+  "source_data_path": "D:\\code\\github\\hehe03\\SkillOpt\\opt-in-harness\\workspace\\shortage_analyze\\data\\data.xlsx",
+  "source_sheet": 0,
+  "label_column": "answer",
+  "split_ratio": "3:2:5",
+  "split_seed": 42,
+  "counts": {
+    "train": 50,
+    "val": 33,
+    "test": 84
+  },
+  "test_items_contain_labels": false,
+  "private_test_labels_path": "",
+  "note": "训练/优化配置应只指向本 split 目录，不能指向原始 data.xlsx。默认 test/items.json 已移除 ground_truth/answers/label_set。"
+}

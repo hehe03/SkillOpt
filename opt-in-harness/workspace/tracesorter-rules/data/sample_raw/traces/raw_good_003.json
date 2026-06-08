@@ -1,0 +1,7 @@
+{
+  "trajectory": [
+    {"action": "inspect", "observation": "visible"},
+    {"action": "finish", "observation": "done"}
+  ],
+  "final_result": "done"
+}

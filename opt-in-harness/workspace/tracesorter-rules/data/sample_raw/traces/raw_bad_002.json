@@ -1,0 +1,6 @@
+{
+  "events": [
+    {"tool": "python", "output": "Traceback: invalid input"},
+    {"tool": "python", "output": ""}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "steps": [
+    {"action": "search", "result": "found evidence"},
+    {"action": "answer", "result": "completed"}
+  ],
+  "final_answer": "completed"
+}

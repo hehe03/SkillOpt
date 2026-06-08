@@ -1,0 +1,6 @@
+{
+  "messages": [
+    {"role": "assistant", "content": "computed final result", "result": "ok"}
+  ],
+  "answer": "ok"
+}

@@ -1,0 +1,7 @@
+name,label,source,split
+raw_good_001.json,goodcase,demo,train
+raw_bad_001.json,badcase,demo,train
+raw_good_002.json,goodcase,demo,val
+raw_bad_002.json,badcase,demo,val
+raw_good_003.json,goodcase,demo,test
+raw_bad_003.json,badcase,demo,test
