@@ -138,6 +138,54 @@ def _build_result(
     return result
 
 
+def _write_summary(out_path: Path, results: list[dict[str, Any]]) -> None:
+    n_items = len(results)
+    hard_sum = sum(float(row.get("hard", 0) or 0) for row in results)
+    soft_sum = sum(float(row.get("soft", 0.0) or 0.0) for row in results)
+    by_task_type: dict[str, dict[str, float]] = {}
+    confusion = {
+        "goodcase_as_goodcase": 0,
+        "goodcase_as_badcase": 0,
+        "badcase_as_badcase": 0,
+        "badcase_as_goodcase": 0,
+        "invalid_or_unlabeled": 0,
+    }
+    for row in results:
+        task_type = str(row.get("task_type") or "trace_classification")
+        bucket = by_task_type.setdefault(task_type, {"total": 0, "hard": 0.0, "soft": 0.0})
+        bucket["total"] += 1
+        bucket["hard"] += float(row.get("hard", 0) or 0)
+        bucket["soft"] += float(row.get("soft", 0.0) or 0.0)
+
+        gold = str(row.get("gold_label") or row.get("gold_answer") or "").strip().lower()
+        pred = str(row.get("predicted_label") or row.get("predicted_answer") or "").strip().lower()
+        key = f"{gold}_as_{pred}"
+        if key in confusion:
+            confusion[key] += 1
+        else:
+            confusion["invalid_or_unlabeled"] += 1
+
+    by_task_type["overall"] = {"total": n_items, "hard": hard_sum, "soft": soft_sum}
+    for bucket in by_task_type.values():
+        total = max(int(bucket["total"]), 1)
+        bucket["hard_acc"] = bucket["hard"] / total
+        bucket["soft_avg"] = bucket["soft"] / total
+
+    summary = {
+        "n_items": n_items,
+        "hard": hard_sum / max(n_items, 1),
+        "soft": soft_sum / max(n_items, 1),
+        "hard_correct": int(hard_sum),
+        "hard_fail": n_items - int(hard_sum),
+        "by_task_type": by_task_type,
+        "confusion": confusion,
+    }
+    (out_path / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def run_batch(
     *,
     items: list[dict],
@@ -169,6 +217,7 @@ def run_batch(
 
     pending = [item for item in items if str(item["id"]) not in done_ids]
     if not pending:
+        _write_summary(out_path, results)
         return results
 
     total = len(results) + len(pending)
@@ -218,4 +267,5 @@ def run_batch(
                 f"(acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}",
                 flush=True,
             )
+    _write_summary(out_path, results)
     return results
