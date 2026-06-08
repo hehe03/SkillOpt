@@ -144,6 +144,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
         target_model: str = "harness-default",
         balanced_train_batches: bool = True,
         balance_labels: str = "goodcase,badcase",
+        fbeta_beta: float = 0.5,
     ) -> None:
         self.workers = int(workers)
         self.analyst_workers = int(analyst_workers)
@@ -153,6 +154,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
         self.llm_timeout = int(llm_timeout)
         self.max_trace_chars = int(max_trace_chars)
         self.target_model = str(target_model or "harness-default")
+        self.fbeta_beta = float(fbeta_beta)
         self.dataloader = BalancedTraceSorterDataLoader(
             split_dir=split_dir,
             data_path=data_path,
@@ -195,6 +197,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
             llm_timeout=kwargs.get("task_timeout", self.llm_timeout),
             max_trace_chars=self.max_trace_chars,
             target_model=self.target_model,
+            fbeta_beta=self.fbeta_beta,
         )
 
     def reflect(self, results: list[dict], skill_content: str, out_dir: str, **kwargs) -> list[dict | None]:

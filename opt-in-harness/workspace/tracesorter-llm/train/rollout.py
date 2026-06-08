@@ -138,10 +138,64 @@ def _build_result(
     return result
 
 
-def _write_summary(out_path: Path, results: list[dict[str, Any]]) -> None:
+def _compute_badcase_metrics(results: list[dict[str, Any]], *, beta: float) -> dict[str, Any]:
+    beta = max(float(beta), 1e-9)
+    tp = fp = fn = tn = 0
+    invalid_or_unlabeled = 0
+    for row in results:
+        gold = str(row.get("gold_label") or row.get("gold_answer") or "").strip().lower()
+        pred = str(row.get("predicted_label") or row.get("predicted_answer") or "").strip().lower()
+        if gold == "badcase" and pred == "badcase":
+            tp += 1
+        elif gold == "goodcase" and pred == "badcase":
+            fp += 1
+        elif gold == "badcase" and pred == "goodcase":
+            fn += 1
+        elif gold == "goodcase" and pred == "goodcase":
+            tn += 1
+        else:
+            invalid_or_unlabeled += 1
+
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    beta2 = beta * beta
+    fbeta = (
+        (1 + beta2) * precision * recall / (beta2 * precision + recall)
+        if precision + recall
+        else 0.0
+    )
+    return {
+        "beta": beta,
+        "badcase_precision": precision,
+        "badcase_recall": recall,
+        "badcase_fbeta": fbeta,
+        "confusion": {
+            "tp_badcase": tp,
+            "fp_badcase": fp,
+            "fn_badcase": fn,
+            "tn_goodcase": tn,
+            "invalid_or_unlabeled": invalid_or_unlabeled,
+        },
+    }
+
+
+def _apply_rollout_soft_metric(results: list[dict[str, Any]], *, fbeta_beta: float) -> dict[str, Any]:
+    metrics = _compute_badcase_metrics(results, beta=fbeta_beta)
+    fbeta = float(metrics["badcase_fbeta"])
+    for row in results:
+        row["sample_hard"] = row.get("hard", 0)
+        row["sample_soft"] = row.get("soft", 0.0)
+        row["soft"] = fbeta
+        row["rollout_metric"] = "badcase_fbeta"
+        row["fbeta_beta"] = metrics["beta"]
+    return metrics
+
+
+def _write_summary(out_path: Path, results: list[dict[str, Any]], *, fbeta_beta: float) -> None:
+    metric = _compute_badcase_metrics(results, beta=fbeta_beta)
     n_items = len(results)
     hard_sum = sum(float(row.get("hard", 0) or 0) for row in results)
-    soft_sum = sum(float(row.get("soft", 0.0) or 0.0) for row in results)
+    sample_soft_sum = sum(float(row.get("sample_soft", row.get("soft", 0.0)) or 0.0) for row in results)
     by_task_type: dict[str, dict[str, float]] = {}
     confusion = {
         "goodcase_as_goodcase": 0,
@@ -152,10 +206,10 @@ def _write_summary(out_path: Path, results: list[dict[str, Any]]) -> None:
     }
     for row in results:
         task_type = str(row.get("task_type") or "trace_classification")
-        bucket = by_task_type.setdefault(task_type, {"total": 0, "hard": 0.0, "soft": 0.0})
+        bucket = by_task_type.setdefault(task_type, {"total": 0, "hard": 0.0, "sample_soft": 0.0})
         bucket["total"] += 1
         bucket["hard"] += float(row.get("hard", 0) or 0)
-        bucket["soft"] += float(row.get("soft", 0.0) or 0.0)
+        bucket["sample_soft"] += float(row.get("sample_soft", row.get("soft", 0.0)) or 0.0)
 
         gold = str(row.get("gold_label") or row.get("gold_answer") or "").strip().lower()
         pred = str(row.get("predicted_label") or row.get("predicted_answer") or "").strip().lower()
@@ -165,20 +219,27 @@ def _write_summary(out_path: Path, results: list[dict[str, Any]]) -> None:
         else:
             confusion["invalid_or_unlabeled"] += 1
 
-    by_task_type["overall"] = {"total": n_items, "hard": hard_sum, "soft": soft_sum}
+    by_task_type["overall"] = {"total": n_items, "hard": hard_sum, "sample_soft": sample_soft_sum}
     for bucket in by_task_type.values():
         total = max(int(bucket["total"]), 1)
         bucket["hard_acc"] = bucket["hard"] / total
-        bucket["soft_avg"] = bucket["soft"] / total
+        bucket["sample_soft_avg"] = bucket["sample_soft"] / total
 
     summary = {
         "n_items": n_items,
         "hard": hard_sum / max(n_items, 1),
-        "soft": soft_sum / max(n_items, 1),
+        "soft": metric["badcase_fbeta"],
+        "metric": "badcase_fbeta",
+        "fbeta_beta": metric["beta"],
+        "badcase_precision": metric["badcase_precision"],
+        "badcase_recall": metric["badcase_recall"],
+        "badcase_fbeta": metric["badcase_fbeta"],
+        "sample_soft_avg": sample_soft_sum / max(n_items, 1),
         "hard_correct": int(hard_sum),
         "hard_fail": n_items - int(hard_sum),
         "by_task_type": by_task_type,
         "confusion": confusion,
+        "badcase_confusion": metric["confusion"],
     }
     (out_path / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -195,6 +256,7 @@ def run_batch(
     llm_timeout: int = 300,
     max_trace_chars: int = 24000,
     target_model: str = "harness-default",
+    fbeta_beta: float = 0.5,
 ) -> list[dict]:
     del workers
     out_path = Path(out_root)
@@ -217,7 +279,8 @@ def run_batch(
 
     pending = [item for item in items if str(item["id"]) not in done_ids]
     if not pending:
-        _write_summary(out_path, results)
+        _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
+        _write_summary(out_path, results, fbeta_beta=fbeta_beta)
         return results
 
     total = len(results) + len(pending)
@@ -267,5 +330,6 @@ def run_batch(
                 f"(acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}",
                 flush=True,
             )
-    _write_summary(out_path, results)
+    _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
+    _write_summary(out_path, results, fbeta_beta=fbeta_beta)
     return results
