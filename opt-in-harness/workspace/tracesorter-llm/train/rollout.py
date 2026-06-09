@@ -229,6 +229,16 @@ def _apply_rollout_soft_metric(results: list[dict[str, Any]], *, fbeta_beta: flo
     return metrics
 
 
+def _print_rollout_metric(metrics: dict[str, Any]) -> None:
+    print(
+        "    [rollout/metric] "
+        f"badcase_fbeta(beta={metrics['beta']:.3g})={metrics['badcase_fbeta']:.4f} "
+        f"precision={metrics['badcase_precision']:.4f} "
+        f"recall={metrics['badcase_recall']:.4f}",
+        flush=True,
+    )
+
+
 def _write_summary(out_path: Path, results: list[dict[str, Any]], *, fbeta_beta: float) -> None:
     metric = _compute_badcase_metrics(results, beta=fbeta_beta)
     n_items = len(results)
@@ -317,8 +327,9 @@ def run_batch(
 
     pending = [item for item in items if str(item["id"]) not in done_ids]
     if not pending:
-        _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
+        metrics = _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
         _write_summary(out_path, results, fbeta_beta=fbeta_beta)
+        _print_rollout_metric(metrics)
         return results
 
     total = len(results) + len(pending)
@@ -363,9 +374,10 @@ def run_batch(
             acc = correct_count / len(results) if results else 0.0
             print(
                 f"    [rollout/llm] {len(results)}/{total} "
-                f"(acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}",
+                f"(sample_acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}",
                 flush=True,
             )
-    _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
+    metrics = _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)
     _write_summary(out_path, results, fbeta_beta=fbeta_beta)
+    _print_rollout_metric(metrics)
     return results

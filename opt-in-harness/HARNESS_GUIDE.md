@@ -100,6 +100,8 @@ env:
   agent_backend: custom_model
 ```
 
+在 `tracesorter-llm` 工作区中，`model.optimizer` 或 `model.target` 为 `harness-default` 时会继续走 harness/Agent；写成其它自定义名称时，会直接调用 `custom_model.py` 中的注册函数，不经过 Nga、Codex、opencode 等 Agent CLI。
+
 然后在 `custom_model.py` 的 `CUSTOM_MODELS` 中注册同名函数：
 
 ```python
