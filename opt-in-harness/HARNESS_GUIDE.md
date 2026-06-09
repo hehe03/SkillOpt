@@ -74,10 +74,32 @@ env:
 
 ```text
 opt-in-harness/train/custom_model.py
-call_custom_model(prompt: str) -> str
+call_custom_model(prompt: str, model: str = "", stage: str = "") -> str
 ```
 
-该函数收到的是 harness 已经装配完成的完整 prompt，返回值必须是模型最终文本响应。默认函数体为空，需要自行填入真实模型调用。
+该函数收到的是 harness 已经装配完成的完整 prompt，返回值必须是模型最终文本响应。`model` 来自 `model.optimizer` 或 `model.target`，`stage` 表示当前调用阶段，例如 `optimizer` 或 `target`。
+
+如果有多个自定义模型，可以直接把自定义名称写到 `model.optimizer` 和 `model.target`：
+
+```yaml
+model:
+  optimizer: my-optimizer
+  target: my-target
+  optimizer_backend: agent_harness
+  target_backend: agent_harness
+
+env:
+  agent_backend: custom_model
+```
+
+然后在 `custom_model.py` 的 `CUSTOM_MODELS` 中注册同名函数：
+
+```python
+CUSTOM_MODELS = {
+    "my-optimizer": call_optimizer_model,
+    "my-target": call_target_model,
+}
+```
 
 也可以指定其它模块或函数：
 

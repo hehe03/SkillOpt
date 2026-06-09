@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import importlib
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -378,6 +379,20 @@ def _load_custom_model_callable():
     return func
 
 
+def _call_custom_model(func, prompt: str, *, model: str, stage: str) -> str:
+    signature = inspect.signature(func)
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    kwargs = {}
+    if accepts_kwargs or "model" in signature.parameters:
+        kwargs["model"] = model
+    if accepts_kwargs or "stage" in signature.parameters:
+        kwargs["stage"] = stage
+    return str(func(prompt, **kwargs) or "").strip()
+
+
 def _run_custom_model_chat(
     prompt: str,
     *,
@@ -386,18 +401,18 @@ def _run_custom_model_chat(
     stage: str,
     cwd: str | os.PathLike[str] | None,
 ) -> str:
-    del model, timeout
+    del timeout
     prompt_path, output_path, _step = _next_llm_file_paths("custom_model_" + _safe_stage_name(stage), cwd=cwd)
     prompt_path.write_text(prompt, encoding="utf-8")
-    _harness_log(f"[harness/custom_model] start stage={stage} prompt={prompt_path}")
-    response = str(_load_custom_model_callable()(prompt) or "").strip()
+    _harness_log(f"[harness/custom_model] start stage={stage} model={model} prompt={prompt_path}")
+    response = _call_custom_model(_load_custom_model_callable(), prompt, model=model, stage=stage)
     output_path.write_text(response, encoding="utf-8")
     if not response:
         raise RuntimeError(
             "custom_model returned an empty response. "
-            "请在 opt-in-harness/train/custom_model.py 的 call_custom_model(prompt) 中接入实际模型。"
+            "请在 opt-in-harness/train/custom_model.py 的 call_custom_model(prompt, model, stage) 中接入实际模型。"
         )
-    _harness_log(f"[harness/custom_model] done stage={stage} chars={len(response)}")
+    _harness_log(f"[harness/custom_model] done stage={stage} model={model} chars={len(response)}")
     return response
 
 
