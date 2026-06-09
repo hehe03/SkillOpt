@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import atexit
+import importlib
+import importlib.util
 import json
 import os
 import re
@@ -349,6 +351,56 @@ def _next_llm_file_paths(stage: str, *, cwd: str | os.PathLike[str] | None) -> t
                 return prompt_path, response_path, step
 
 
+def _load_custom_model_callable():
+    module_ref = _env_first("OPT_IN_HARNESS_CUSTOM_MODEL_MODULE", default="custom_model")
+    function_name = _env_first("OPT_IN_HARNESS_CUSTOM_MODEL_FUNCTION", default="call_custom_model")
+    module_path = Path(module_ref)
+    sibling_path = Path(__file__).resolve().parent / f"{module_ref}.py"
+    if module_path.suffix == ".py" or module_path.exists():
+        if not module_path.is_absolute():
+            module_path = (Path(__file__).resolve().parent / module_path).resolve()
+    elif sibling_path.exists():
+        module_path = sibling_path
+    else:
+        module_path = None
+
+    if module_path is not None:
+        spec = importlib.util.spec_from_file_location("opt_in_harness_custom_model", module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"无法加载自定义模型模块：{module_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_ref)
+    func = getattr(module, function_name, None)
+    if not callable(func):
+        raise AttributeError(f"自定义模型模块 {module_ref!r} 中没有可调用函数 {function_name!r}")
+    return func
+
+
+def _run_custom_model_chat(
+    prompt: str,
+    *,
+    model: str,
+    timeout: int | None,
+    stage: str,
+    cwd: str | os.PathLike[str] | None,
+) -> str:
+    del model, timeout
+    prompt_path, output_path, _step = _next_llm_file_paths("custom_model_" + _safe_stage_name(stage), cwd=cwd)
+    prompt_path.write_text(prompt, encoding="utf-8")
+    _harness_log(f"[harness/custom_model] start stage={stage} prompt={prompt_path}")
+    response = str(_load_custom_model_callable()(prompt) or "").strip()
+    output_path.write_text(response, encoding="utf-8")
+    if not response:
+        raise RuntimeError(
+            "custom_model returned an empty response. "
+            "请在 opt-in-harness/train/custom_model.py 的 call_custom_model(prompt) 中接入实际模型。"
+        )
+    _harness_log(f"[harness/custom_model] done stage={stage} chars={len(response)}")
+    return response
+
+
 def _run_custom_agent_command(
     prompt: str,
     *,
@@ -643,7 +695,8 @@ def run_agent_chat(
 
     Backend resolution order:
     1. OPT_IN_HARNESS_AGENT_COMMAND_JSON / OPT_IN_HARNESS_AGENT_COMMAND
-    2. OPT_IN_HARNESS_AGENT_BACKEND when set to nga, opencode, or codex
+    2. OPT_IN_HARNESS_AGENT_BACKEND when set to custom_model, nga,
+       opencode, or codex
     3. auto-detect Nga CLI
     4. auto-detect opencode CLI
     5. auto-detect Codex CLI
@@ -653,6 +706,8 @@ def run_agent_chat(
     ):
         return _run_custom_agent_command(prompt, model=model, timeout=timeout, stage=stage, cwd=cwd)
     backend = _requested_backend()
+    if backend in {"custom_model", "custom-model", "python"}:
+        return _run_custom_model_chat(prompt, model=model, timeout=timeout, stage=stage, cwd=cwd)
     if backend == "nga":
         return _run_nga_chat(prompt, model=model, timeout=timeout, cwd=cwd, stage=stage)
     if backend == "opencode":
@@ -661,7 +716,7 @@ def run_agent_chat(
         return _run_codex_chat(prompt, model=model, timeout=timeout, cwd=cwd, sandbox=sandbox)
     if backend not in {"auto", ""}:
         raise ValueError(
-            "OPT_IN_HARNESS_AGENT_BACKEND 只支持 auto、nga、opencode、codex；"
+            "OPT_IN_HARNESS_AGENT_BACKEND 只支持 auto、custom_model、nga、opencode、codex；"
             "其它 harness 请配置 OPT_IN_HARNESS_AGENT_COMMAND_JSON。"
         )
     if _resolve_nga_cli():
@@ -682,6 +737,8 @@ def describe_agent_backend() -> str:
     if _env_first("OPT_IN_HARNESS_AGENT_COMMAND"):
         return "custom harness command from OPT_IN_HARNESS_AGENT_COMMAND"
     backend = _requested_backend()
+    if backend in {"custom_model", "custom-model", "python"}:
+        return "custom Python model function"
     if backend == "nga" or (backend == "auto" and _resolve_nga_cli()):
         return f"Nga CLI ({_resolve_nga_cli()})"
     if backend == "opencode" or (backend == "auto" and _resolve_opencode_cli()):

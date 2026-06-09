@@ -322,6 +322,8 @@ def _patch_agent_harness_flat_config() -> None:
             "agent_use_stdin": "OPT_IN_HARNESS_AGENT_USE_STDIN",
             "hide_subprocess_window": "OPT_IN_HARNESS_HIDE_SUBPROCESS_WINDOW",
             "stream_subprocess_output": "OPT_IN_HARNESS_STREAM_SUBPROCESS_OUTPUT",
+            "custom_model_module": "OPT_IN_HARNESS_CUSTOM_MODEL_MODULE",
+            "custom_model_function": "OPT_IN_HARNESS_CUSTOM_MODEL_FUNCTION",
             "nga_cli_bin": "NGA_CLI_BIN",
             "nga_exec_path": "NGA_EXEC_PATH",
             "nga_instruction": "OPT_IN_HARNESS_NGA_INSTRUCTION",

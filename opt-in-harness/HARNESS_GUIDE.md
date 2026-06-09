@@ -36,7 +36,7 @@ env:
   split_dir: opt-in-harness/workspace/<skill_name>/data/<split_name>
   data_path: ""
   out_root: ""
-  agent_backend: nga   # 可选：指定使用 nga / opencode / codex
+  agent_backend: nga   # 可选：指定使用 custom_model / nga / opencode / codex
 ```
 
 `env.out_root` 通常保持为空，由训练入口自动生成时间戳目录。
@@ -54,11 +54,39 @@ run_agent_chat(...)
 路由顺序：
 
 1. 如果配置了 `OPT_IN_HARNESS_AGENT_COMMAND_JSON` 或 `OPT_IN_HARNESS_AGENT_COMMAND`，使用自定义 harness 命令。
-2. 如果配置文件中写了 `env.agent_backend: nga`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=nga`，使用 Nga CLI。
-3. 如果配置文件中写了 `env.agent_backend: opencode`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=opencode`，使用 opencode CLI。
-4. 如果配置文件中写了 `env.agent_backend: codex`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=codex`，使用 Codex CLI。
-5. 如果未设置或为 `auto`，依次检测 Nga、opencode、Codex。
-6. 如果都不可用，直接报错。
+2. 如果配置文件中写了 `env.agent_backend: custom_model`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=custom_model`，使用本地 Python 自定义模型函数。
+3. 如果配置文件中写了 `env.agent_backend: nga`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=nga`，使用 Nga CLI。
+4. 如果配置文件中写了 `env.agent_backend: opencode`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=opencode`，使用 opencode CLI。
+5. 如果配置文件中写了 `env.agent_backend: codex`，或环境变量 `OPT_IN_HARNESS_AGENT_BACKEND=codex`，使用 Codex CLI。
+6. 如果未设置或为 `auto`，依次检测 Nga、opencode、Codex。
+7. 如果都不可用，直接报错。
+
+### 自定义 Python 模型
+
+如果希望直接在代码中接入自己的模型，可在配置中指定：
+
+```yaml
+env:
+  agent_backend: custom_model
+```
+
+默认会调用：
+
+```text
+opt-in-harness/train/custom_model.py
+call_custom_model(prompt: str) -> str
+```
+
+该函数收到的是 harness 已经装配完成的完整 prompt，返回值必须是模型最终文本响应。默认函数体为空，需要自行填入真实模型调用。
+
+也可以指定其它模块或函数：
+
+```yaml
+env:
+  agent_backend: custom_model
+  custom_model_module: path/to/my_model.py
+  custom_model_function: call_custom_model
+```
 
 ### Nga
 
