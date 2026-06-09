@@ -393,6 +393,17 @@ def _call_custom_model(func, prompt: str, *, model: str, stage: str) -> str:
     return str(func(prompt, **kwargs) or "").strip()
 
 
+def _strip_custom_model_think_enabled() -> bool:
+    value = _env_first("OPT_IN_HARNESS_STRIP_CUSTOM_MODEL_THINK", default="1").lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _strip_think_blocks(text: str) -> str:
+    text = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<think\b[^>]*>.*\Z", "", text, flags=re.IGNORECASE | re.DOTALL)
+    return text.strip()
+
+
 def _run_custom_model_chat(
     prompt: str,
     *,
@@ -405,7 +416,12 @@ def _run_custom_model_chat(
     prompt_path, output_path, _step = _next_llm_file_paths("custom_model_" + _safe_stage_name(stage), cwd=cwd)
     prompt_path.write_text(prompt, encoding="utf-8")
     _harness_log(f"[harness/custom_model] start stage={stage} model={model} prompt={prompt_path}")
-    response = _call_custom_model(_load_custom_model_callable(), prompt, model=model, stage=stage)
+    raw_response = _call_custom_model(_load_custom_model_callable(), prompt, model=model, stage=stage)
+    response = _strip_think_blocks(raw_response) if _strip_custom_model_think_enabled() else raw_response
+    if response != raw_response:
+        raw_output_path = output_path.with_name(f"{output_path.stem}_raw{output_path.suffix}")
+        raw_output_path.write_text(raw_response, encoding="utf-8")
+        _harness_log(f"[harness/custom_model] stripped think block raw={raw_output_path}")
     output_path.write_text(response, encoding="utf-8")
     if not response:
         raise RuntimeError(

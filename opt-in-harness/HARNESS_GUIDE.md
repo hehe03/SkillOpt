@@ -68,6 +68,7 @@ run_agent_chat(...)
 ```yaml
 env:
   agent_backend: custom_model
+  strip_custom_model_think: true
 ```
 
 默认会调用：
@@ -78,6 +79,13 @@ call_custom_model(prompt: str, model: str = "", stage: str = "") -> str
 ```
 
 该函数收到的是 harness 已经装配完成的完整 prompt，返回值必须是模型最终文本响应。`model` 来自 `model.optimizer` 或 `model.target`，`stage` 表示当前调用阶段，例如 `optimizer` 或 `target`。
+
+默认情况下，harness 会在自定义模型响应返回 SkillOpt 前移除 `<think>...</think>` 内容，避免污染标签解析、JSON patch 解析或 evaluator。清洗前后的内容不一致时，原始响应会额外保存到 `llm-files/response_*_raw.txt`。如果确实需要保留 think 内容，可设置：
+
+```yaml
+env:
+  strip_custom_model_think: false
+```
 
 如果有多个自定义模型，可以直接把自定义名称写到 `model.optimizer` 和 `model.target`：
 
