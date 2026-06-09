@@ -13,10 +13,15 @@ if str(TRAIN_ROOT) not in sys.path:
     sys.path.insert(0, str(TRAIN_ROOT))
 
 from evaluator import evaluate
+from custom_model_runtime import call_custom_model_direct
 from harness_chat import run_agent_chat
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _use_harness_for_model(model: str) -> bool:
+    return str(model or "").strip().lower() in {"", "harness-default", "agent_harness"}
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -136,6 +141,39 @@ def _build_result(
     (prediction_dir / "target_user_prompt.txt").write_text(prompt, encoding="utf-8")
     (prediction_dir / "target_response.txt").write_text(response, encoding="utf-8")
     return result
+
+
+def _run_target_model(
+    prompt: str,
+    *,
+    target_model: str,
+    llm_timeout: int,
+    prediction_dir: Path,
+) -> str:
+    if _use_harness_for_model(target_model):
+        return run_agent_chat(
+            prompt,
+            model=target_model,
+            timeout=llm_timeout,
+            stage="tracesorter_rollout",
+            cwd=PROJECT_ROOT,
+            sandbox="read-only",
+        )
+
+    response, raw_response = call_custom_model_direct(
+        prompt,
+        model=target_model,
+        stage="tracesorter_rollout",
+    )
+    prediction_dir.mkdir(parents=True, exist_ok=True)
+    if raw_response != response:
+        (prediction_dir / "target_response_raw.txt").write_text(raw_response, encoding="utf-8")
+    if not response:
+        raise RuntimeError(
+            f"custom target model {target_model!r} returned an empty response. "
+            "请在 opt-in-harness/train/custom_model.py 中接入实际模型。"
+        )
+    return response
 
 
 def _compute_badcase_metrics(results: list[dict[str, Any]], *, beta: float) -> dict[str, Any]:
@@ -291,13 +329,11 @@ def run_batch(
             prompt = _build_prompt(item, skill_content, max_trace_chars=max_trace_chars)
             prediction_dir = predictions_dir / item_id
             try:
-                response = run_agent_chat(
+                response = _run_target_model(
                     prompt,
-                    model=target_model,
-                    timeout=llm_timeout,
-                    stage="tracesorter_rollout",
-                    cwd=PROJECT_ROOT,
-                    sandbox="read-only",
+                    target_model=target_model,
+                    llm_timeout=llm_timeout,
+                    prediction_dir=prediction_dir,
                 )
                 row = _build_result(item, response, prompt=prompt, prediction_dir=prediction_dir)
             except Exception as exc:  # noqa: BLE001

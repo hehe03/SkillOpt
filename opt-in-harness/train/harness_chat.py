@@ -15,6 +15,12 @@ import tempfile
 import threading
 from pathlib import Path
 
+TRAIN_ROOT = Path(__file__).resolve().parent
+if str(TRAIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(TRAIN_ROOT))
+
+from custom_model_runtime import call_custom_model_direct
+
 
 _LLM_FILE_LOCK = threading.Lock()
 _LLM_FILE_STEP = 0
@@ -416,8 +422,7 @@ def _run_custom_model_chat(
     prompt_path, output_path, _step = _next_llm_file_paths("custom_model_" + _safe_stage_name(stage), cwd=cwd)
     prompt_path.write_text(prompt, encoding="utf-8")
     _harness_log(f"[harness/custom_model] start stage={stage} model={model} prompt={prompt_path}")
-    raw_response = _call_custom_model(_load_custom_model_callable(), prompt, model=model, stage=stage)
-    response = _strip_think_blocks(raw_response) if _strip_custom_model_think_enabled() else raw_response
+    response, raw_response = call_custom_model_direct(prompt, model=model, stage=stage)
     if response != raw_response:
         raw_output_path = output_path.with_name(f"{output_path.stem}_raw{output_path.suffix}")
         raw_output_path.write_text(raw_response, encoding="utf-8")

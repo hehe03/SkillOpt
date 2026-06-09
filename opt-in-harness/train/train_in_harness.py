@@ -108,7 +108,29 @@ def _patch_openai_chat_to_agent_harness() -> None:
 
     from skillopt.model import azure_openai as openai_impl
     from skillopt.model import codex_backend
+    from custom_model_runtime import call_custom_model_direct
     from harness_chat import run_agent_chat
+
+    def use_harness_model(model: str) -> bool:
+        return str(model or "").strip().lower() in {"", "harness-default", "agent_harness"}
+
+    def call_prompt(prompt: str, *, model: str, stage: str, timeout=None, sandbox: str = "read-only") -> str:
+        if use_harness_model(model):
+            return run_agent_chat(
+                prompt,
+                model=model,
+                timeout=timeout,
+                stage=stage,
+                cwd=harness_cwd(),
+                sandbox=sandbox,
+            )
+        response, _raw_response = call_custom_model_direct(prompt, model=model, stage=stage)
+        if not response:
+            raise RuntimeError(
+                f"custom model {model!r} returned an empty response at stage {stage!r}. "
+                "请在 opt-in-harness/train/custom_model.py 中接入实际模型。"
+            )
+        return response
 
     def build_prompt(system: str, user: str) -> str:
         return (
@@ -134,45 +156,41 @@ def _patch_openai_chat_to_agent_harness() -> None:
 
     def chat_optimizer(*, system, user, max_completion_tokens=16384, retries=5, stage="optimizer", timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage
-        return run_agent_chat(
+        return call_prompt(
             build_prompt(system, user),
             model=codex_backend.OPTIMIZER_DEPLOYMENT,
             timeout=timeout,
             stage="optimizer",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         ), {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def chat_target(*, system, user, max_completion_tokens=16384, retries=5, stage="target", timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage
-        return run_agent_chat(
+        return call_prompt(
             build_prompt(system, user),
             model=codex_backend.TARGET_DEPLOYMENT,
             timeout=timeout,
             stage="target",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         ), {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def chat_with_deployment(deployment, system, user, max_completion_tokens=16384, retries=5, stage="custom", timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage
-        return run_agent_chat(
+        return call_prompt(
             build_prompt(system, user),
             model=deployment,
             timeout=timeout,
             stage="custom",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         ), {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def chat_optimizer_messages(messages, max_completion_tokens=16384, retries=5, stage="optimizer", tools=None, tool_choice=None, return_message=False, timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage, tools, tool_choice
-        text = run_agent_chat(
+        text = call_prompt(
             build_prompt_from_messages(messages),
             model=codex_backend.OPTIMIZER_DEPLOYMENT,
             timeout=timeout,
             stage="optimizer",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         )
         if return_message:
@@ -182,12 +200,11 @@ def _patch_openai_chat_to_agent_harness() -> None:
 
     def chat_target_messages(messages, max_completion_tokens=16384, retries=5, stage="target", tools=None, tool_choice=None, return_message=False, timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage, tools, tool_choice
-        text = run_agent_chat(
+        text = call_prompt(
             build_prompt_from_messages(messages),
             model=codex_backend.TARGET_DEPLOYMENT,
             timeout=timeout,
             stage="target",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         )
         if return_message:
@@ -197,12 +214,11 @@ def _patch_openai_chat_to_agent_harness() -> None:
 
     def chat_messages_with_deployment(deployment, messages, max_completion_tokens=16384, retries=5, stage="custom", tools=None, tool_choice=None, return_message=False, timeout=None, **_kwargs):
         del max_completion_tokens, retries, stage, tools, tool_choice
-        text = run_agent_chat(
+        text = call_prompt(
             build_prompt_from_messages(messages),
             model=deployment,
             timeout=timeout,
             stage="custom",
-            cwd=harness_cwd(),
             sandbox=os.environ.get("CODEX_SANDBOX_MODE", "read-only"),
         )
         if return_message:

@@ -52,7 +52,6 @@ env:
   workers: 1
   llm_timeout: 300
   max_trace_chars: 24000
-  target_model: harness-default
   fbeta_beta: 0.5
   balanced_train_batches: true
   balance_labels: goodcase,badcase
