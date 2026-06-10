@@ -333,6 +333,7 @@ def run_error_analyst_minibatch(
             if not is_full_rewrite_minibatch_mode(mode):
                 truncate_payload(result["patch"], edit_budget, mode)
             return result
+        return {"source_type": "failure", "_raw_response": response, "_parse_error": "missing JSON object with patch"}
     except Exception:  # noqa: BLE001
         traceback.print_exc()
     return None
@@ -408,6 +409,7 @@ def run_success_analyst_minibatch(
             if not is_full_rewrite_minibatch_mode(mode):
                 truncate_payload(result["patch"], edit_budget, mode)
             return result
+        return {"source_type": "success", "_raw_response": response, "_parse_error": "missing JSON object with patch"}
     except Exception:  # noqa: BLE001
         traceback.print_exc()
     return None
@@ -574,9 +576,14 @@ def run_minibatch_reflect(
         for i, fut in enumerate(as_completed(futs), 1):
             kind, idx, batch_len = futs[fut]
             tag, patch = fut.result()
+            if patch and patch.get("_raw_response") is not None:
+                raw_path = os.path.join(patches_dir, f"{tag}.raw.txt")
+                with open(raw_path, "w", encoding="utf-8") as f:
+                    f.write(str(patch.get("_raw_response") or ""))
+                patch = None
             if patch:
                 path = os.path.join(patches_dir, f"{tag}.json")
-                with open(path, "w") as f:
+                with open(path, "w", encoding="utf-8") as f:
                     json.dump(patch, f, ensure_ascii=False, indent=2)
                 raw_patches.append(patch)
             n_edits = len(get_payload_items(patch.get("patch", {}) if patch else {}, update_mode))
