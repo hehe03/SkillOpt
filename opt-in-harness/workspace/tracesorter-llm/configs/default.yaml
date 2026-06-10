@@ -9,7 +9,7 @@ model:
   reasoning_effort: medium
 
 train:
-  num_epochs: 2
+  num_epochs: 0
   train_size: 0
   batch_size: 8
   accumulation: 1
@@ -32,7 +32,7 @@ optimizer:
 evaluation:
   use_gate: true
   gate_metric: soft
-  sel_env_num: 24
+  sel_env_num: 0
   test_env_num: 0
   eval_test: false
 
@@ -41,9 +41,9 @@ env:
   workspace_root: opt-in-harness/workspace/tracesorter-llm
   adapter_module: opt-in-harness/workspace/tracesorter-llm/train/adapter.py
   adapter_class: TraceSorterLlmAdapter
-  skill_init: opt-in-harness/workspace/tracesorter-llm/init-skill/initial_skill.md
+  skill_init: opt-in-harness/workspace/tracesorter-llm/init-skill/AgentEval_initial.md
   split_mode: split_dir
-  split_dir: opt-in-harness/workspace/tracesorter-llm/data/default_split
+  split_dir: opt-in-harness/workspace/tracesorter-llm/data
   data_path: ""
   split_output_dir: ""
   out_root: ""

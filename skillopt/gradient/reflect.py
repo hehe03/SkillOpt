@@ -137,7 +137,7 @@ def fmt_minibatch_trajectories(
         conv_path = os.path.join(prediction_dir, tid, "conversation.json")
         if not os.path.exists(conv_path):
             continue
-        with open(conv_path) as f:
+        with open(conv_path, encoding='utf-8') as f:
             conversation = json.load(f)
         if not conversation:
             continue

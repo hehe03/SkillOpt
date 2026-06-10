@@ -688,7 +688,7 @@ class ReflACTTrainer:
         # ── Load initial skill ───────────────────────────────────────────
         skill_init_path = os.path.abspath(cfg["skill_init"])
         if os.path.exists(skill_init_path):
-            with open(skill_init_path) as f:
+            with open(skill_init_path, encoding='utf-8') as f:
                 skill_init = f.read()
             print(f"  [initial skill] {skill_init_path} ({len(skill_init)} chars)")
         else:

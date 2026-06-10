@@ -260,5 +260,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    SCRIPT_ARGS: list[str] | None = None
+    SCRIPT_ARGS = ["--trace-dir", r"D:\Data\agent\trace\all", "--metadata", r"D:\Code\github\hehe03\高交all.csv",
+                   "--out-dir", "../data", "--split-mode", "ratio", "--ratios", "0.2,0.2,0.6"]
     main(SCRIPT_ARGS)

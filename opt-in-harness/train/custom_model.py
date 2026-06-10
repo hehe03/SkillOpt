@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
+from aigc import UniAIGC
 
 CustomModelFn = Callable[[str], str]
 
 
 def call_optimizer_model(prompt: str) -> str:
     """Fill this function with your optimizer model invocation."""
-    del prompt
-    return ""
+    llm = UniAIGC()
+    res = llm.client_glm5(prompt)
+    return res
 
 
 def call_target_model(prompt: str) -> str:
     """Fill this function with your target/execution model invocation."""
-    del prompt
-    return ""
+    llm = UniAIGC()
+    res = llm.client_glm5(prompt)
+    return res
 
 
 CUSTOM_MODELS: dict[str, CustomModelFn] = {

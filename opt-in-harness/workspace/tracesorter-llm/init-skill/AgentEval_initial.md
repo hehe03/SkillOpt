@@ -34,5 +34,3 @@ description: 使用 AgentEvals 内置 trajectory accuracy 默认 prompt，将 Ag
 - 如果模型认为轨迹准确、合理地完成或推进了任务，判为 `goodcase`。
 - 如果模型认为轨迹不准确、逻辑断裂、没有有效推进、没有产生可用结果、或明显偏离任务目标，判为 `badcase`。
 - 如果模型内部使用布尔分数，则 `score=true` 对应 `goodcase`，`score=false` 对应 `badcase`。
-
-# 
