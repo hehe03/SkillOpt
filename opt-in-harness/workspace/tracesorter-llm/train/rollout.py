@@ -54,12 +54,10 @@ def _build_prompt(item: dict[str, Any], skill_content: str, *, max_trace_chars: 
         "请只根据 trace 内容判断，不要根据文件名、样本 id、split 或标签推断。\n"
         "请在内部完成必要分析，但最终响应必须 JSON-first 且可被程序解析。\n\n"
         "## Output Contract\n"
-        "第一行必须是唯一 JSON object，不要输出 markdown、编号列表、解释文字或分析过程。\n"
+        "第一行必须是唯一 JSON object，不要输出 markdown、编号列表、解释文字。\n"
         "JSON object 必须包含字段：label、confidence、reasons、evidence、risk_signals。\n"
         "label 只能是 goodcase 或 badcase。\n"
-        "reasons、evidence、risk_signals 必须是简短字符串数组，每个数组最多 5 项。\n"
-        f"JSON object 后必须另起一行输出结束标记：{DONE_MARKER}\n"
-        "除 JSON object 和结束标记外，不要输出其它内容。\n\n"
+        f"JSON object 后必须另起一行输出结束标记：{DONE_MARKER}\n\n"
         "## Current Skill\n"
         f"{skill_content.strip()}\n\n"
         "## Input Trace"
@@ -356,15 +354,74 @@ def run_batch(
             item_id = str(item["id"])
             prompt = _build_prompt(item, skill_content, max_trace_chars=max_trace_chars)
             prediction_dir = predictions_dir / item_id
-            try:
-                response = _run_target_model(
-                    prompt,
-                    target_model=target_model,
-                    llm_timeout=llm_timeout,
-                    prediction_dir=prediction_dir,
-                )
-                row = _build_result(item, response, prompt=prompt, prediction_dir=prediction_dir)
-            except Exception as exc:  # noqa: BLE001
+            max_retries = 2
+            last_exc = None
+            row = None
+            for retry_attempt in range(max_retries):
+                try:
+                    response = _run_target_model(
+                        prompt,
+                        target_model=target_model,
+                        llm_timeout=llm_timeout,
+                        prediction_dir=prediction_dir,
+                    )
+                    row = _build_result(item, response, prompt=prompt, prediction_dir=prediction_dir)
+                    break
+                except RuntimeError as exc:
+                    last_exc = exc
+                    if retry_attempt < max_retries - 1:
+                        print(
+                            f"    [rollout/llm] retry {retry_attempt + 1}/{max_retries - 1} for id={item_id} "
+                            f"due to RuntimeError: {exc}",
+                            flush=True,
+                        )
+                        continue
+                    prediction_dir.mkdir(parents=True, exist_ok=True)
+                    (prediction_dir / "target_user_prompt.txt").write_text(prompt, encoding="utf-8")
+                    row = {
+                        "id": item_id,
+                        "question": item.get("question") or f"Classify trace {item_id}.",
+                        "task_description": "Classify an Agent execution trace as goodcase or badcase.",
+                        "task_type": item.get("task_type") or "trace_classification",
+                        "hard": 0,
+                        "soft": 0.0,
+                        "predicted_answer": "",
+                        "predicted_label": "",
+                        "gold_answer": item.get("ground_truth", ""),
+                        "gold_label": item.get("ground_truth", ""),
+                        "response": "",
+                        "fail_reason": f"llm-error: {type(exc).__name__}: {exc}",
+                        "agent_ok": False,
+                        "n_turns": 0,
+                        "executor": "llm_direct",
+                        "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
+                        "parse_issues": [f"llm-error: {type(exc).__name__}: {exc}"],
+                    }
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    prediction_dir.mkdir(parents=True, exist_ok=True)
+                    (prediction_dir / "target_user_prompt.txt").write_text(prompt, encoding="utf-8")
+                    row = {
+                        "id": item_id,
+                        "question": item.get("question") or f"Classify trace {item_id}.",
+                        "task_description": "Classify an Agent execution trace as goodcase or badcase.",
+                        "task_type": item.get("task_type") or "trace_classification",
+                        "hard": 0,
+                        "soft": 0.0,
+                        "predicted_answer": "",
+                        "predicted_label": "",
+                        "gold_answer": item.get("ground_truth", ""),
+                        "gold_label": item.get("ground_truth", ""),
+                        "response": "",
+                        "fail_reason": f"llm-error: {type(exc).__name__}: {exc}",
+                        "agent_ok": False,
+                        "n_turns": 0,
+                        "executor": "llm_direct",
+                        "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
+                        "parse_issues": [f"llm-error: {type(exc).__name__}: {exc}"],
+                    }
+                    break
+            if row is None:
                 prediction_dir.mkdir(parents=True, exist_ok=True)
                 (prediction_dir / "target_user_prompt.txt").write_text(prompt, encoding="utf-8")
                 row = {
@@ -379,12 +436,12 @@ def run_batch(
                     "gold_answer": item.get("ground_truth", ""),
                     "gold_label": item.get("ground_truth", ""),
                     "response": "",
-                    "fail_reason": f"llm-error: {type(exc).__name__}: {exc}",
+                    "fail_reason": f"llm-error: max retries exhausted",
                     "agent_ok": False,
                     "n_turns": 0,
                     "executor": "llm_direct",
                     "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
-                    "parse_issues": [f"llm-error: {type(exc).__name__}: {exc}"],
+                    "parse_issues": ["llm-error: max retries exhausted"],
                 }
             output.write(json.dumps(row, ensure_ascii=False) + "\n")
             output.flush()
