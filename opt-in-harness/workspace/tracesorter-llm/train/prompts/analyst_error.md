@@ -9,7 +9,11 @@
 - badcase 被误判为 goodcase 时，是否存在空最终答案、无关输出、终局错误、工具失败未恢复、循环空转、证据不足或明显偏离任务目标。
 - 当前 JSON 输出格式是否被破坏，导致 evaluator 无法解析。
 
-输出必须严格是一个 JSON object，不要使用 markdown 代码块，不要输出解释性前后缀：
+输出必须严格是一个 JSON object，不要使用 markdown 代码块，不要输出解释性前后缀。
+Respond with JSON only. The first character must be `{` and the last character must be `}`.
+不要输出分析过程；可以把简短依据写入 `patch.reasoning`。
+
+JSON schema：
 {
   "batch_size": <分析的失败轨迹数量>,
   "failure_summary": [

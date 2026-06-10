@@ -18,6 +18,7 @@ from harness_chat import run_agent_chat
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
+DONE_MARKER = "__TRACE_SORTER_DONE__"
 
 
 def _use_harness_for_model(model: str) -> bool:
@@ -50,15 +51,22 @@ def _build_prompt(item: dict[str, Any], skill_content: str, *, max_trace_chars: 
     trace_text = _json_dumps(trace, max_chars=max_trace_chars)
     return (
         "你是一个严格遵守 skill 文档的 trace 分类器。"
-        "请只根据 trace 内容判断，不要根据文件名、样本 id、split 或标签推断。\n\n"
+        "请只根据 trace 内容判断，不要根据文件名、样本 id、split 或标签推断。\n"
+        "请在内部完成必要分析，但最终响应必须 JSON-first 且可被程序解析。\n\n"
+        "## Output Contract\n"
+        "第一行必须是唯一 JSON object，不要输出 markdown、编号列表、解释文字或分析过程。\n"
+        "JSON object 必须包含字段：label、confidence、reasons、evidence、risk_signals。\n"
+        "label 只能是 goodcase 或 badcase。\n"
+        "reasons、evidence、risk_signals 必须是简短字符串数组，每个数组最多 5 项。\n"
+        f"JSON object 后必须另起一行输出结束标记：{DONE_MARKER}\n"
+        "除 JSON object 和结束标记外，不要输出其它内容。\n\n"
         "## Current Skill\n"
         f"{skill_content.strip()}\n\n"
         "## Input Trace"
         f"{source_text}{parse_error_text}\n"
         "```json\n"
         f"{trace_text}\n"
-        "```\n\n"
-        "请严格输出一个 JSON object，字段为 label、confidence、reasons、evidence、risk_signals。"
+        "```"
     )
 
 
@@ -84,6 +92,8 @@ def _build_result(
         "evidence": [],
         "risk_signals": [],
         "parse_ok": False,
+        "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
+        "parse_issues": ["unlabeled item; skipped scoring"],
     }
     result = {
         "id": item_id,
@@ -102,6 +112,8 @@ def _build_result(
         "evidence": eval_result["evidence"],
         "risk_signals": eval_result["risk_signals"],
         "parse_ok": eval_result["parse_ok"],
+        "missing_fields": eval_result.get("missing_fields", []),
+        "parse_issues": eval_result.get("parse_issues", []),
         "response": response,
         "fail_reason": "",
         "agent_ok": True,
@@ -109,11 +121,15 @@ def _build_result(
         "executor": "llm_direct",
         "metadata": item.get("metadata", {}),
     }
+    if result["parse_issues"]:
+        result["fail_reason"] = "parse issues: " + "; ".join(result["parse_issues"])
     if gold_answer and not result["hard"]:
         result["fail_reason"] = (
             f"predicted={result['predicted_label']!r}, "
             f"gold={result['gold_label']!r}, parse_ok={result['parse_ok']}"
         )
+        if result["parse_issues"]:
+            result["fail_reason"] += "; parse issues: " + "; ".join(result["parse_issues"])
     elif not gold_answer:
         result["fail_reason"] = "unlabeled item; skipped scoring"
 
@@ -127,6 +143,7 @@ def _build_result(
                 f"Predicted label: {result['predicted_label']!r}\n"
                 f"Gold label: {result['gold_label']!r}\n"
                 f"Hard: {result['hard']}\n"
+                f"Parse issues: {result['parse_issues']}\n"
                 f"Reasons: {result['reasons']}\n"
                 f"Evidence: {result['evidence']}\n"
                 f"Risk signals: {result['risk_signals']}"
@@ -366,15 +383,21 @@ def run_batch(
                     "agent_ok": False,
                     "n_turns": 0,
                     "executor": "llm_direct",
+                    "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
+                    "parse_issues": [f"llm-error: {type(exc).__name__}: {exc}"],
                 }
             output.write(json.dumps(row, ensure_ascii=False) + "\n")
             output.flush()
             results.append(row)
             correct_count += int(bool(row.get("hard")))
             acc = correct_count / len(results) if results else 0.0
+            parse_note = ""
+            if row.get("parse_issues"):
+                parse_note = " parse_issues=" + " | ".join(str(issue) for issue in row["parse_issues"])
             print(
                 f"    [rollout/llm] {len(results)}/{total} "
-                f"(sample_acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}",
+                f"(sample_acc={acc:.3f}) id={item_id} hard={row.get('hard', '?')}"
+                f"{parse_note}",
                 flush=True,
             )
     metrics = _apply_rollout_soft_metric(results, fbeta_beta=fbeta_beta)

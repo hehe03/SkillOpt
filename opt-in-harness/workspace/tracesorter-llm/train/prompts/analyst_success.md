@@ -4,7 +4,11 @@
 
 只允许保留可泛化到 trace 内容的依据，不要引入文件名、样本 id、metadata label、split 或外部标签。特别关注能减少误杀 goodcase 的规则，以及能稳定识别真正 badcase 的硬失败规则。
 
-输出必须严格是一个 JSON object，不要使用 markdown 代码块，不要输出解释性前后缀：
+输出必须严格是一个 JSON object，不要使用 markdown 代码块，不要输出解释性前后缀。
+Respond with JSON only. The first character must be `{` and the last character must be `}`.
+不要输出分析过程；可以把简短依据写入 `patch.reasoning`。
+
+JSON schema：
 {
   "batch_size": <分析的成功轨迹数量>,
   "success_patterns": [
