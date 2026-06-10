@@ -47,6 +47,8 @@ env:
   data_path: ""
   split_output_dir: ""
   out_root: ""
+  cli_progress_only: true
+  train_log_path: ""
   agent_backend: nga
   stream_subprocess_output: true
   workers: 1

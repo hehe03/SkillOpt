@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import importlib.util
+import io
 import os
 import re
 from collections.abc import Sequence
@@ -49,6 +50,122 @@ def _resolve_path(value: str | os.PathLike[str], *, base: Path = PROJECT_ROOT) -
     if not path.is_absolute():
         path = base / path
     return path.resolve()
+
+
+class ProgressLogStream(io.TextIOBase):
+    """Write full output to a log file while showing compact progress in CLI."""
+
+    _STEP_RE = re.compile(r"\[STEP\s+(\d+)/(\d+)\].*?epoch=(\d+)")
+    _ROLLOUT_RE = re.compile(r"\[rollout/llm\]\s+(\d+)/(\d+)")
+
+    def __init__(self, real_stream, log_handle, *, stream_name: str) -> None:
+        self._real_stream = real_stream
+        self._log_handle = log_handle
+        self._stream_name = stream_name
+        self._buffer = ""
+        self._epoch = "?"
+        self._step = "?"
+        self._total_steps = "?"
+        self._phase = ""
+        self._last_progress = ""
+
+    @property
+    def encoding(self) -> str:
+        return "utf-8"
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, text) -> int:
+        text = str(text)
+        self._log_handle.write(text)
+        self._log_handle.flush()
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._handle_line(line.rstrip("\r"))
+        return len(text)
+
+    def flush(self) -> None:
+        self._log_handle.flush()
+        self._real_stream.flush()
+
+    def _emit(self, unit: str, current: str = "", total: str = "") -> None:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        suffix = unit
+        if current:
+            suffix = f"{unit} {current}/{total}" if total else f"{unit} {current}"
+        progress = (
+            f"{timestamp}--epoch {self._epoch}--step {self._step}/{self._total_steps}--{suffix}\n"
+        )
+        if progress == self._last_progress:
+            return
+        self._last_progress = progress
+        self._real_stream.write(progress)
+        self._real_stream.flush()
+
+    def _handle_line(self, line: str) -> None:
+        step_match = self._STEP_RE.search(line)
+        if step_match:
+            self._step, self._total_steps, self._epoch = step_match.groups()
+            self._phase = "rollout"
+            self._emit("step")
+            return
+
+        if "[6/6 EVALUATE]" in line:
+            self._phase = "evaluate"
+            self._emit("evaluate")
+            return
+
+        if "BASELINE" in line and "evaluate" in line.lower():
+            self._phase = "evaluate"
+            self._step = "baseline"
+            self._emit("evaluate")
+            return
+
+        rollout_match = self._ROLLOUT_RE.search(line)
+        if rollout_match:
+            current, total = rollout_match.groups()
+            unit = "evaluate" if self._phase == "evaluate" else "rollout"
+            self._emit(unit, current, total)
+            return
+
+        if "[STEP " in line and " done]" in line:
+            self._phase = ""
+            self._emit("step_done")
+            return
+
+
+def _bool_cfg(value, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _install_progress_logging(cfg: dict) -> None:
+    if not _bool_cfg(cfg.get("cli_progress_only"), default=True):
+        return
+    if getattr(sys, "_opt_in_harness_progress_logging", False):
+        return
+    out_root = Path(str(cfg["out_root"]))
+    log_dir = out_root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    configured_log = str(cfg.get("train_log_path") or "").strip()
+    if configured_log:
+        log_path = _resolve_path(configured_log)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = log_dir / f"train_{timestamp}.log"
+    log_handle = log_path.open("a", encoding="utf-8", buffering=1)
+    real_stdout = sys.stdout
+    real_stdout.write(f"训练完整日志: {log_path}\n")
+    real_stdout.flush()
+    sys.stdout = ProgressLogStream(sys.stdout, log_handle, stream_name="stdout")
+    sys.stderr = ProgressLogStream(sys.stderr, log_handle, stream_name="stderr")
+    sys._opt_in_harness_progress_logging = True
+    sys._opt_in_harness_train_log_handle = log_handle
+    os.environ["OPT_IN_HARNESS_TRAIN_LOG_PATH"] = str(log_path)
 
 
 def _workspace_from_config_path(args, cfg: dict) -> Path:
@@ -371,6 +488,7 @@ def _patch_agent_harness_flat_config() -> None:
         if str(cfg.get("script_codegen_model") or "").strip().lower() in {"", "harness-default", "agent_harness"}:
             cfg["script_codegen_model"] = "harness-default"
         configure_output_root(cfg, args)
+        _install_progress_logging(cfg)
         state["cfg"] = cfg
         state["workspace_root"] = Path(str(cfg["workspace_root"]))
         state["adapter_class"] = _load_adapter_class(cfg, Path(str(cfg["workspace_root"])))
