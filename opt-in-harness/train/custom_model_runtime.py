@@ -5,6 +5,7 @@ import importlib.util
 import inspect
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -54,7 +55,24 @@ def call_custom_model_function(func, prompt: str, *, model: str, stage: str) -> 
         kwargs["model"] = model
     if accepts_kwargs or "stage" in signature.parameters:
         kwargs["stage"] = stage
-    return str(func(prompt, **kwargs) or "").strip()
+    response = func(prompt, **kwargs)
+    if response is None:
+        return ""
+    if isinstance(response, bytes):
+        return response.decode("utf-8", errors="replace").strip()
+    if isinstance(response, str):
+        return response.strip()
+    if isinstance(response, Iterable) and not isinstance(response, dict):
+        chunks: list[str] = []
+        for chunk in response:
+            if chunk is None:
+                continue
+            if isinstance(chunk, bytes):
+                chunks.append(chunk.decode("utf-8", errors="replace"))
+            else:
+                chunks.append(str(chunk))
+        return "".join(chunks).strip()
+    return str(response).strip()
 
 
 def strip_custom_model_think_enabled() -> bool:

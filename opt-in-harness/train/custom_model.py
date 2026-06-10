@@ -1,47 +1,80 @@
 from __future__ import annotations
+
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+
 from aigc import UniAIGC
+
 
 CustomModelFn = Callable[[str], str]
 
 
 def call_optimizer_model(prompt: str) -> str:
-    """Fill this function with your optimizer model invocation."""
+    """接入优化模型，输入为 harness 已装配完成的完整 prompt。"""
     llm = UniAIGC()
-    res = llm.client_glm5(prompt)
-    return res
+    return str(llm.client_glm5(prompt) or "").strip()
 
 
 def call_target_model(prompt: str) -> str:
-    """Fill this function with your target/execution model invocation."""
+    """接入执行/评判模型，输入为 harness 已装配完成的完整 prompt。"""
     llm = UniAIGC()
-    res = llm.client_glm5(prompt)
-    return res
+    return str(llm.client_glm5(prompt) or "").strip()
+
+
+def _iter_sse_lines(response) -> Iterable[str]:
+    if isinstance(response, str):
+        yield from response.splitlines()
+        return
+    if hasattr(response, "iter_lines"):
+        for line in response.iter_lines():
+            yield line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
+        return
+    for line in response:
+        yield line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
+
+
+def _extract_stream_delta(chunk_data: dict) -> str:
+    choices = chunk_data.get("choices") or []
+    if not choices:
+        return ""
+    choice = choices[0] or {}
+    if isinstance(choice.get("delta"), dict):
+        return str(choice["delta"].get("content") or "")
+    if choice.get("content") is not None:
+        return str(choice.get("content") or "")
+    if isinstance(choice.get("message"), dict):
+        return str(choice["message"].get("content") or "")
+    return ""
+
 
 def call_stream_model(prompt: str) -> str:
-    """Fill this function with your target/execution model invocation."""
+    """接入流式模型，边打印 chunk，边累计并返回完整响应。"""
     llm = UniAIGC()
     response = llm.client_glm5(prompt)
-    for line_bytes in response.iter_lines():
-        if line_bytes:
-            # 1. 将行 bytes 解码为字符串
-            line_str = line_bytes.decode('utf-8')
-            # 2. SSE 协议通常以 "data: " 开头，结尾可能是 [DONE]
-            if line_str.startswith("data:"):
-                content = line_str[5:]  # 截取 "data:" 后面的 JSON 字符串
-                try:
-                    # 3. 解析为 JSON 对象并打印内容
-                    chunk_data = json.loads(content)
-                    finishReason = chunk_data['choices'][0].get('finishReason', '')
-                    if finishReason == 'END':
-                        print('输出结束')
-                        break
-                    delta_content = chunk_data['choices'][0].get('content', '')
-                    print(delta_content, end='', flush=True)  # 实现打字机效果
-                except json.JSONDecodeError:
-                    pass
-
+    chunks: list[str] = []
+    for line_str in _iter_sse_lines(response):
+        line_str = line_str.strip()
+        if not line_str:
+            continue
+        if line_str.startswith("data:"):
+            line_str = line_str[5:].strip()
+        if line_str in {"[DONE]", "DONE"}:
+            break
+        try:
+            chunk_data = json.loads(line_str)
+        except json.JSONDecodeError:
+            continue
+        choice = (chunk_data.get("choices") or [{}])[0] or {}
+        finish_reason = choice.get("finishReason") or choice.get("finish_reason")
+        if finish_reason in {"END", "stop"}:
+            break
+        delta_content = _extract_stream_delta(chunk_data)
+        if delta_content:
+            chunks.append(delta_content)
+            print(delta_content, end="", flush=True)
+    if chunks:
+        print(flush=True)
+    return "".join(chunks).strip()
 
 
 CUSTOM_MODELS: dict[str, CustomModelFn] = {
@@ -51,6 +84,8 @@ CUSTOM_MODELS: dict[str, CustomModelFn] = {
     #   target: my-target
     "my-optimizer": call_optimizer_model,
     "my-target": call_target_model,
+    "my-stream-target": call_stream_model,
+    "my-stream": call_stream_model,
 }
 
 

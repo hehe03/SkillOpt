@@ -51,6 +51,7 @@ env:
   stream_subprocess_output: true
   workers: 1
   llm_timeout: 300
+  llm_retries: 2
   max_trace_chars: 24000
   fbeta_beta: 0.5
   balanced_train_batches: true

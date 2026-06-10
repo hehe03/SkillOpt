@@ -317,6 +317,7 @@ def run_batch(
     skill_content: str,
     workers: int = 1,
     llm_timeout: int = 300,
+    llm_retries: int = 2,
     max_trace_chars: int = 24000,
     target_model: str = "harness-default",
     fbeta_beta: float = 0.5,
@@ -327,6 +328,7 @@ def run_batch(
     predictions_dir = out_path / "predictions"
     predictions_dir.mkdir(parents=True, exist_ok=True)
     results_path = out_path / "results.jsonl"
+    max_retries = max(int(llm_retries), 1)
 
     results: list[dict[str, Any]] = []
     done_ids: set[str] = set()
@@ -354,8 +356,6 @@ def run_batch(
             item_id = str(item["id"])
             prompt = _build_prompt(item, skill_content, max_trace_chars=max_trace_chars)
             prediction_dir = predictions_dir / item_id
-            max_retries = 2
-            last_exc = None
             row = None
             for retry_attempt in range(max_retries):
                 try:
@@ -368,7 +368,34 @@ def run_batch(
                     row = _build_result(item, response, prompt=prompt, prediction_dir=prediction_dir)
                     break
                 except RuntimeError as exc:
-                    last_exc = exc
+                    error_text = str(exc).lower()
+                    retryable = any(
+                        marker in error_text
+                        for marker in ("timeout", "timed out", "temporarily", "rate limit", "connection")
+                    )
+                    if not retryable:
+                        prediction_dir.mkdir(parents=True, exist_ok=True)
+                        (prediction_dir / "target_user_prompt.txt").write_text(prompt, encoding="utf-8")
+                        row = {
+                            "id": item_id,
+                            "question": item.get("question") or f"Classify trace {item_id}.",
+                            "task_description": "Classify an Agent execution trace as goodcase or badcase.",
+                            "task_type": item.get("task_type") or "trace_classification",
+                            "hard": 0,
+                            "soft": 0.0,
+                            "predicted_answer": "",
+                            "predicted_label": "",
+                            "gold_answer": item.get("ground_truth", ""),
+                            "gold_label": item.get("ground_truth", ""),
+                            "response": "",
+                            "fail_reason": f"llm-error: {type(exc).__name__}: {exc}",
+                            "agent_ok": False,
+                            "n_turns": 0,
+                            "executor": "llm_direct",
+                            "missing_fields": ["label", "confidence", "reasons", "evidence", "risk_signals"],
+                            "parse_issues": [f"llm-error: {type(exc).__name__}: {exc}"],
+                        }
+                        break
                     if retry_attempt < max_retries - 1:
                         print(
                             f"    [rollout/llm] retry {retry_attempt + 1}/{max_retries - 1} for id={item_id} "

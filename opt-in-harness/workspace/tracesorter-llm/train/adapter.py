@@ -140,6 +140,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
         seed: int = 42,
         limit: int = 0,
         llm_timeout: int = 300,
+        llm_retries: int = 2,
         max_trace_chars: int = 24000,
         target_model: str = "harness-default",
         balanced_train_batches: bool = True,
@@ -152,6 +153,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
         self.minibatch_size = int(minibatch_size)
         self.edit_budget = int(edit_budget)
         self.llm_timeout = int(llm_timeout)
+        self.llm_retries = max(int(llm_retries), 1)
         self.max_trace_chars = int(max_trace_chars)
         self.target_model = str(target_model or "harness-default")
         self.fbeta_beta = float(fbeta_beta)
@@ -195,6 +197,7 @@ class TraceSorterLlmAdapter(EnvAdapter):
             skill_content=skill_content,
             workers=self.workers,
             llm_timeout=kwargs.get("task_timeout", self.llm_timeout),
+            llm_retries=self.llm_retries,
             max_trace_chars=self.max_trace_chars,
             target_model=self.target_model,
             fbeta_beta=self.fbeta_beta,
