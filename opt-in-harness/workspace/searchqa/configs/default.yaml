@@ -1,0 +1,60 @@
+_base_: ../../../../configs/_base_/default.yaml
+
+model:
+  backend: agent_harness
+  optimizer: harness-default
+  target: harness-default
+  optimizer_backend: agent_harness
+  target_backend: agent_harness
+  reasoning_effort: medium
+
+train:
+  num_epochs: 2
+  train_size: 0
+  batch_size: 8
+  accumulation: 1
+  seed: 42
+
+gradient:
+  minibatch_size: 4
+  merge_batch_size: 4
+  analyst_workers: 1
+  failure_only: false
+
+optimizer:
+  learning_rate: 2
+  min_learning_rate: 1
+  lr_scheduler: cosine
+  skill_update_mode: patch
+  use_slow_update: false
+  use_meta_skill: false
+
+evaluation:
+  use_gate: true
+  gate_metric: soft
+  sel_env_num: 32
+  test_env_num: 0
+  eval_test: false
+
+env:
+  name: searchqa
+  workspace_root: opt-in-harness/workspace/searchqa
+  adapter_module: opt-in-harness/workspace/searchqa/train/adapter.py
+  adapter_class: SearchQaOptInAdapter
+  skill_init: opt-in-harness/workspace/searchqa/init-skill/initial_skill.md
+  split_mode: split_dir
+  split_dir: opt-in-harness/workspace/searchqa/data/default_split
+  data_path: ""
+  split_output_dir: ""
+  out_root: ""
+  cli_progress_only: true
+  train_log_path: ""
+  agent_backend: nga
+  stream_subprocess_output: false
+  workers: 1
+  max_turns: 1
+  exec_timeout: 300
+  task_timeout: 420
+  llm_retries: 2
+  max_context_chars: 6000
+  max_completion_tokens: 4096

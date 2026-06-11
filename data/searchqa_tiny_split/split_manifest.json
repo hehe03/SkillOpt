@@ -1,0 +1,9 @@
+{
+  "source": "data\\raw\\searchqa",
+  "counts": {
+    "train": 2,
+    "val": 2,
+    "test": 2
+  },
+  "note": "Tiny SearchQA split generated from local parquet files for one-step SkillOpt inspection."
+}

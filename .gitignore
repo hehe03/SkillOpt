@@ -6,7 +6,6 @@ dist/
 site/
 .idea
 
-data/*
 !data/README.md
 !data/searchqa_id_split/
 !data/searchqa_id_split/**
